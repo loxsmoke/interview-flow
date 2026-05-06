@@ -19,7 +19,7 @@ The app walks you through an 11-step interview prep workflow:
 | **Research** | AI agent researches the company using web search — culture, tech stack, red/green flags, fit score |
 | **Interview Intel** | Mines Glassdoor, Blind, Reddit, and Levels.fyi for real interview questions, hiring patterns, and candidate experiences |
 | **Job Decoder** | Analyzes the job description through 6 lenses — hidden requirements, emphasis signals, verb patterns, what's missing |
-| **Resume Tailor** | Reviews your resume against the JD, rewrites it as a tailored draft in a structured format, and provides an interactive chat coach |
+| **Resume Tailor** | Reviews your resume against the job description and rewrites it as a tailored draft to make it more relevant to the job posting. Use the interactive chat coach to refine specific bullets or sections. Export the finished resume as a `.docx` file using your own Word template for styling |
 | **Story Bank** | Mines your resume for STAR stories with "earned secrets" — the spiky insights only you would know |
 | **Pitch** | Generates 10s, 30s, 60s, and 90s pitch variants tailored to the role |
 | **Concerns** | Anticipates what the interviewer might worry about and gives you counter-evidence scripts |
@@ -32,12 +32,12 @@ Each step is powered by an AI agent. Results are saved automatically so you can 
 
 ## AI Providers
 
-The app supports three AI backends, switchable from the **Configuration** page at any time:
+The app supports three AI backends, switchable from the **Configuration** page at any time. Anthropic and OpenAI require you to provide your own API key — the app has no built-in key and makes no requests on your behalf.
 
 | Provider | Setup | Cost | Web Search |
 |----------|-------|------|------------|
-| **Anthropic (Claude)** | Anthropic API key | Pay-per-use | Via Anthropic web search tool |
-| **OpenAI (GPT)** | OpenAI API key | Pay-per-use | Via OpenAI web search tool |
+| **Anthropic (Claude)** | Your own Anthropic API key | Pay-per-use | Via Anthropic web search tool |
+| **OpenAI (GPT)** | Your own OpenAI API key | Pay-per-use | Via OpenAI web search tool |
 | **Ollama (local)** | [Ollama](https://ollama.com) installed + model pulled | Free | Via DuckDuckGo (no API key needed) |
 
 ### Running fully local with Ollama
@@ -128,7 +128,7 @@ interview-flow/
     agents/
       streaming.py         # Streaming helpers and provider abstraction
       research.py          # Company research and interview intel agents (web search)
-      story_miner.py       # Story extraction, JD decode, salary, concerns, pitch
+      story_miner.py       # Story extraction, job description decode, salary, concerns, pitch
       mock_interview.py    # Multi-turn mock interview with scoring
       resume_chat.py       # Interactive resume coaching chat
     prompts/               # Agent system prompt templates (markdown)
