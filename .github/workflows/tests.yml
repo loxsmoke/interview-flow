@@ -1,0 +1,38 @@
+name: Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+
+      - name: Run unit tests
+        run: |
+          mkdir -p tests/.tmp
+          python -m pytest tests/app \
+            --basetemp=tests/.tmp/pytest-temp \
+            -o cache_dir=tests/.tmp/pytest-cache \
+            -v
+
+      - name: Run e2e tests
+        run: bash tests/test-e2e.sh

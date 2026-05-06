@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mermaid Debug</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js" integrity="sha384-vdScihEZCfbPnBQf+lc7LgXUdJVYyhC3yWHUW5C5P5GpHRqVnaM6HJELJxT6IqwM" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.4.0/mermaid.min.js" integrity="sha384-Wm9qzEgq4j1jEnuFK2FxKTlwuhbV2QqtGhcchvjDoKxeJ7WWAW7fysBq+1s6myfX" crossorigin="anonymous"></script>
+  <style>
+    body {
+      margin: 0;
+      background: #020617;
+      color: #e2e8f0;
+      font-family: Inter, system-ui, sans-serif;
+    }
+    .page {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .header {
+      margin-bottom: 20px;
+    }
+    .header h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+    }
+    .header p {
+      margin: 0;
+      color: #94a3b8;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .panel {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 12px 16px;
+      background: #111827;
+      border-bottom: 1px solid #1e293b;
+      font-weight: 600;
+    }
+    .panel-body {
+      padding: 16px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 320px;
+      resize: vertical;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      background: #020617;
+      color: #e2e8f0;
+      padding: 14px;
+      box-sizing: border-box;
+      font: 14px/1.5 Consolas, Monaco, monospace;
+    }
+    .options {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    label {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      color: #cbd5e1;
+    }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover {
+      filter: brightness(1.08);
+    }
+    .results {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .output {
+      min-height: 260px;
+      overflow: auto;
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .mermaid-output svg {
+      max-width: 100%;
+      height: auto;
+    }
+    .mermaid-output svg text,
+    .mermaid-output svg tspan,
+    .mermaid-output svg .label,
+    .mermaid-output svg .nodeLabel,
+    .mermaid-output svg .edgeLabel {
+      fill: #e2e8f0 !important;
+      color: #e2e8f0 !important;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .stat {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .stat-label {
+      color: #94a3b8;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+    }
+    .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font: 12px/1.5 Consolas, Monaco, monospace;
+      color: #cbd5e1;
+    }
+    .hint {
+      margin-top: 12px;
+      color: #94a3b8;
+      font-size: 13px;
+    }
+    @media (max-width: 1100px) {
+      .controls, .results, .stats {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <h1>Mermaid Debug</h1>
+      <p>Paste a diagram and compare raw Mermaid SVG output with the app's sanitized render path.</p>
+    </div>
+
+    <div class="controls">
+      <div class="panel">
+        <div class="panel-header">Diagram Source</div>
+        <div class="panel-body">
+          <textarea id="source">graph TD
+  A[Interview Concerns] --> B[Other]</textarea>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">Options</div>
+        <div class="panel-body options">
+          <label><input id="htmlLabels" type="checkbox" /> Use Mermaid HTML labels</label>
+          <label><input id="sanitize" type="checkbox" checked /> Render legacy sanitized diagnostic view</label>
+          <button id="renderBtn" type="button">Render Diagram</button>
+          <div class="hint">
+            If raw and current app render show labels but the sanitized diagnostic does not, the old sanitizer path was the problem.
+            If both raw and current app render lose labels, Mermaid/theme config is the problem.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="results">
+      <div class="panel">
+        <div class="panel-header">Raw Mermaid SVG</div>
+        <div id="rawOutput" class="panel-body output mermaid-output"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">Current App Render</div>
+        <div id="appOutput" class="panel-body output mermaid-output"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">Legacy Sanitized Diagnostic</div>
+        <div id="sanitizedOutput" class="panel-body output mermaid-output"></div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Text Nodes</div>
+        <div id="textNodes" class="stat-value">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Tspan Nodes</div>
+        <div id="tspanNodes" class="stat-value">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">ForeignObject Nodes</div>
+        <div id="foreignObjectNodes" class="stat-value">0</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Label Elements</div>
+        <div id="labelNodes" class="stat-value">0</div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top: 16px;">
+      <div class="panel-header">Generated SVG Snippet</div>
+      <div class="panel-body output">
+        <pre id="svgSnippet"></pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function sanitizeSvg(svg) {
+      return DOMPurify.sanitize(svg, {
+        USE_PROFILES: { svg: true, svgFilters: true, html: false },
+        ADD_TAGS: ['style', 'tspan'],
+        ADD_ATTR: ['class', 'style', 'dominant-baseline', 'text-anchor', 'dy'],
+      });
+    }
+
+    function countNodes(root, selector) {
+      return root.querySelectorAll(selector).length;
+    }
+
+    function renderSvgIntoElement(svg, element) {
+      const svgDoc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+      const svgNode = svgDoc.documentElement;
+      element.innerHTML = '';
+      if (svgNode && svgNode.nodeName.toLowerCase() === 'svg') {
+        element.replaceChildren(document.importNode(svgNode, true));
+      } else {
+        element.textContent = 'Mermaid did not return a valid SVG element.';
+      }
+    }
+
+    async function renderDiagram() {
+      const source = document.getElementById('source').value.trim();
+      const htmlLabels = document.getElementById('htmlLabels').checked;
+      const sanitize = document.getElementById('sanitize').checked;
+      const rawOutput = document.getElementById('rawOutput');
+      const appOutput = document.getElementById('appOutput');
+      const sanitizedOutput = document.getElementById('sanitizedOutput');
+      const svgSnippet = document.getElementById('svgSnippet');
+
+      rawOutput.innerHTML = '';
+      appOutput.innerHTML = '';
+      sanitizedOutput.innerHTML = '';
+      svgSnippet.textContent = '';
+
+      try {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'dark',
+          suppressErrorRendering: false,
+          flowchart: { htmlLabels },
+        });
+
+        const id = `debug-${Date.now()}`;
+        const { svg } = await mermaid.render(id, source);
+
+        rawOutput.innerHTML = svg;
+        renderSvgIntoElement(svg, appOutput);
+        sanitizedOutput.innerHTML = sanitize ? sanitizeSvg(svg) : '';
+        svgSnippet.textContent = svg.slice(0, 5000);
+
+        const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
+        document.getElementById('textNodes').textContent = countNodes(parsed, 'text');
+        document.getElementById('tspanNodes').textContent = countNodes(parsed, 'tspan');
+        document.getElementById('foreignObjectNodes').textContent = countNodes(parsed, 'foreignObject');
+        document.getElementById('labelNodes').textContent = countNodes(parsed, '.label, .nodeLabel, .edgeLabel');
+      } catch (err) {
+        rawOutput.innerHTML = `<pre>${String(err)}</pre>`;
+        appOutput.innerHTML = `<pre>${String(err)}</pre>`;
+        sanitizedOutput.innerHTML = `<pre>${String(err)}</pre>`;
+      }
+    }
+
+    document.getElementById('renderBtn').addEventListener('click', renderDiagram);
+    renderDiagram();
+  </script>
+</body>
+</html>

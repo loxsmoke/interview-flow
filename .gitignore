@@ -1,0 +1,15 @@
+.venv/
+.venv-win/
+__pycache__/
+*.pyc
+data/*.json
+data/*.tmp
+.env
+.DS_Store
+node_modules/
+test-results/
+playwright-report/
+.test-data/
+tests/.tmp/
+*.log
+.claude/
