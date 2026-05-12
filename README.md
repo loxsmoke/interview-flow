@@ -4,6 +4,8 @@
 
 AI-powered interview coaching that helps you prepare for job interviews end-to-end — from company research to salary negotiation.
 
+Based on the original version by [Prasad Apparaju](https://github.com/Prasad-Apparaju), inspired by the research article [How to Use AI for your next job interview](https://www.lennysnewsletter.com/p/how-to-use-ai-in-your-next-job-interview)
+
 ![App screenshot](docs/images/app-screenshot.png)
 
 Built with Python/FastAPI, it runs locally on your machine. Your data stays on your computer. Choose from multiple AI backends — Claude (Anthropic), GPT (OpenAI), or a fully local model via Ollama — all configurable from the in-app settings page without editing config files.
