@@ -36,7 +36,7 @@ Structure your response as a detailed report with clear sections for each dimens
 - Tag confidence: [VERIFIED] (official sources), [LIKELY] (job postings/patterns), [SPECULATIVE] (educated guess)
 - Include specific sources where possible
 
-When illustrating org structures, tech stack layers, or product relationships, use Mermaid diagrams (```mermaid code blocks). Never use ASCII art or text-based box diagrams. For diagrams with multiple sibling subgraphs (e.g. product ecosystem, tech stack layers), use `graph LR` for the outer graph so subgraphs are arranged left-to-right, and add `direction TB` as the first line inside each subgraph so nodes within each container stack vertically — this maximises use of the available space. Use `\n` for line breaks in node labels — do NOT use HTML tags like `<br/>`.
+When illustrating org structures, tech stack layers, or product relationships, use Mermaid diagrams (```mermaid code blocks). Never use ASCII art or text-based box diagrams. For diagrams with multiple sibling subgraphs (e.g. product ecosystem, tech stack layers), use `graph LR` for the outer graph so subgraphs are arranged left-to-right, and add `direction TB` as the first line inside each subgraph so nodes within each container stack vertically — this maximises use of the available space. Use `\n` for line breaks in node labels — do NOT use HTML tags like `<br/>`. Never use backtick-quoted labels (e.g. `` A["`...`"] ``) — they trigger Mermaid's markdown-string parser, which does not support list syntax and will render the error text "Unsupported markdown: list" literally inside the diagram. Never put `- `, `* `, or numbered list markers inside any node label for the same reason.
 
 End with:
 - **Fit Score**: 0-100 based on overall opportunity quality

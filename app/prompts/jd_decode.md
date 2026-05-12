@@ -43,7 +43,7 @@ Visualization rules:
   - Lens 3: `| Hard Requirements | Nice to Have |`
   - Lens 4: `| High-Agency Verbs | Low-Agency Verbs |`
 - **Any summary or synthesis section** — use a markdown table instead of a diagram. Column headers should name the categories being compared (e.g. `| Signal | What It Means | Confidence |`).
-- **Other lenses** — when a diagram genuinely aids understanding, use a Mermaid diagram (```mermaid code block). Never use ASCII art. Do NOT use `block-beta` — use `graph LR` for side-by-side comparisons. Do NOT use HTML tags inside node labels — use `\n` for line breaks. Add `direction TB` as the first line inside any subgraph that contains multiple nodes so items stack vertically.
+- **Other lenses** — when a diagram genuinely aids understanding, use a Mermaid diagram (```mermaid code block). Never use ASCII art. Do NOT use `block-beta` — use `graph LR` for side-by-side comparisons. Do NOT use HTML tags inside node labels — use `\n` for line breaks. Never use backtick-quoted labels (e.g. `` A["`...`"] ``) — they trigger Mermaid's markdown-string parser, which does not support list syntax and will render the error text "Unsupported markdown: list" literally inside the diagram. Never put `- `, `* `, or numbered list markers inside any node label. Add `direction TB` as the first line inside any subgraph that contains multiple nodes so items stack vertically.
 
 Provide a structured analysis with all six lenses, then end with:
 - **The Role in One Sentence** — What this job actually is, decoded

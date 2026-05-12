@@ -41,7 +41,13 @@ For each potential concern:
 4. **Reframe Script** — Exact words the candidate can use to proactively address this
 5. **Severity** — High / Medium / Low likelihood of coming up
 
-When visualizing concern severity or coverage, use Mermaid `graph` diagrams (```mermaid code blocks). Use `graph TD` or `graph LR` only — do NOT use `quadrantChart` as it has syntax limitations. Never use ASCII art. In every `style` directive pair light background colors (e.g. `fill:#ffe5e5`) with `color:#333` (dark text) and dark background colors with `color:#fff` (light text). Use `\n` for line breaks in node labels — do NOT use HTML tags like `<br/>`.
+When visualizing concern severity or coverage, use a Mermaid `graph LR` diagram (```mermaid code block). Never use ASCII art. Group concerns by severity using subgraphs (High / Medium / Low); add `direction TB` as the first line inside each subgraph so concerns stack vertically within each group while the overall layout stays horizontal. Use at most 5 concern nodes total. In every `style` directive pair light background colors (e.g. `fill:#ffe5e5`) with `color:#333` (dark text) and dark background colors with `color:#fff` (light text).
+Mermaid constraints — violating these produces a broken diagram:
+- Always start with `graph LR`.
+- Never use backtick-quoted labels (e.g. `` A["`...`"] ``) — they trigger Mermaid's markdown-string parser, which does not support list syntax and will render the error text "Unsupported markdown: list" literally inside the diagram.
+- Never put `- `, `* `, or numbered list markers inside any node label for the same reason.
+- For multi-line text inside a node use `<br/>` (e.g. `A["1. GCP experience<br/>High"]`).
+- Keep node labels short — 2-4 word title only (e.g. `A["GCP experience"]`). Never prefix with `1.`, `2.` etc. — those are numbered list markers and trigger the same parser error.
 
 List at least 5 concerns, ranked by likelihood.
 ````

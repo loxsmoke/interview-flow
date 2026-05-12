@@ -75,10 +75,12 @@ Provide a complete rewritten resume optimized for this specific role. Preserve a
 
 Output the resume using the tagged format below — one tag per line, no blank lines between entries. Every line of content must be wrapped in exactly one tag. Do not use markdown formatting (no `**`, `##`, `-`) inside the tags.
 
+**Critical rule — missing data:** Never invent, guess, or substitute placeholder text for information not present in the source resume. If a field is missing, omit it entirely. Never write "Date not provided", "Unknown", "N/A", or any similar filler. Silently leave the field out.
+
 Available tags and when to use them:
 - `[Section Heading]text` — the title of each major section (e.g. Summary, Experience, Skills, Education)
 - `[Summary]text` — the professional summary paragraph(s)
-- `[Job title]text` — one line: job title, company, location, and date range separated by `|`
+- `[Job title]text` — one line: job title, company, location, and date range separated by `|`; if dates are missing omit the date segment entirely — do NOT write "Date not provided" or any placeholder
 - `[Job summary]text` — optional short paragraph immediately after the job title describing the role
 - `[Job bullet]text` — each achievement or responsibility bullet under a job
 - `[Skill]Category: skill1, skill2, skill3` — one skill category per line; colon separates category from items
@@ -95,6 +97,8 @@ Example of correct output (use this structure exactly):
 [Job bullet]Mentored 4 junior engineers and conducted technical interviews
 [Job title]Software Engineer | StartupCo | Remote | 2018 – 2021
 [Job bullet]Built microservices architecture from the ground up using Go and Kubernetes
+[Job title]Freelance Developer | Self-employed
+[Job bullet]Delivered web applications for small business clients
 [Section Heading]Technical Skills
 [Skill]Languages: Python, Go, TypeScript
 [Skill]Platforms: AWS, GCP, Kubernetes, Docker

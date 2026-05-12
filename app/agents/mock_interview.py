@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 
-from app.agents.streaming import get_active_provider
+from app.agents.streaming import get_active_provider, get_temperature
+
+_TEMPERATURE = get_temperature("mock-interview")
 from app.prompt_loader import load_prompt
 from app.tracing import trace_agent
 
@@ -112,6 +114,7 @@ class MockInterviewSession:
                 resp = await client.chat.completions.create(
                     model=model,
                     messages=self._messages,
+                    temperature=_TEMPERATURE,
                 )
                 return resp.choices[0].message.content or ""
             except openai.RateLimitError as _exc:
@@ -129,7 +132,7 @@ class MockInterviewSession:
         model = os.environ.get("OLLAMA_MODEL", "llama3.2").strip() or "llama3.2"
         base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").strip() or "http://localhost:11434"
         client = openai.AsyncOpenAI(base_url=f"{base_url.rstrip('/')}/v1", api_key="ollama")
-        resp = await client.chat.completions.create(model=model, messages=self._messages)
+        resp = await client.chat.completions.create(model=model, messages=self._messages, temperature=_TEMPERATURE)
         return resp.choices[0].message.content or ""
 
     async def _anthropic_turn(self) -> str:
@@ -138,7 +141,7 @@ class MockInterviewSession:
         client = anthropic.AsyncAnthropic()
         system = next((m["content"] for m in self._messages if m["role"] == "system"), "")
         messages = [m for m in self._messages if m["role"] != "system"]
-        kwargs: dict = dict(model=model, max_tokens=8192, messages=messages)
+        kwargs: dict = dict(model=model, max_tokens=8192, temperature=_TEMPERATURE, messages=messages)
         if system:
             kwargs["system"] = system
         resp = await client.messages.create(**kwargs)

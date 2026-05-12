@@ -42,7 +42,18 @@ A user-defined AI coaching action with a configurable prompt template.
 | `name` | `str` | `"Custom Action"` | Display name |
 | `description` | `str` | `""` | What this action does |
 | `prompt_template` | `str` | `""` | Prompt sent to the AI, may reference `{job_posting}`, `{resume}`, etc. |
+| `temperature` | `float \| None` | `None` | Sampling temperature sent to the AI API. `None` = use API default. See table below. |
 | `created_at` | `str` | ISO timestamp | Creation timestamp |
+
+#### Temperature values
+
+| Value | Effect |
+|-------|--------|
+| `None` (empty) | Use API default (~1.0) — temperature parameter is not sent |
+| 0.0 – 0.3 | Precise, consistent, near-deterministic — good for structured output |
+| 0.4 – 0.6 | Balanced — good for research and synthesis tasks |
+| 0.7 – 1.0 | Creative, varied, conversational |
+| 1.1 – 2.0 | Highly random — OpenAI only, not supported by Anthropic |
 
 ### CustomActionResult
 

@@ -163,6 +163,30 @@ Or run pytest directly:
 python -m pytest tests/app -v
 ```
 
+## Export Saved AI Responses
+
+To compare saved responses from different models, export prompt-ready text files for a company:
+
+```bash
+python -m app.export_responses "Some company"
+```
+
+The exporter reads `data/interview-flow-data.json` by default. It matches saved applications by the base company name before any pipe comment, so `Some company`, `Some company | backend`, and `Some company | platform` are grouped together. Each non-empty interview section is written as `Company_section.txt`, with one response block per matching application:
+
+```text
+Model: gemma4:31b
+Application: Some company | backend
+Section: Company Research
+Output:
+...
+```
+
+Optional flags:
+
+```bash
+python -m app.export_responses "Some company" --data-file data/interview-flow-data.json --output-dir exports
+```
+
 ### E2E tests (uses mock agents — no API key needed)
 
 ```bash

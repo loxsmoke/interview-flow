@@ -58,6 +58,34 @@ def _parse_anthropic_retry_after(exc) -> float:
         pass
     return 60.0
 
+# ── Per-section temperature mapping ─────────────────────────────────────────
+
+_SECTION_TEMPERATURES: dict[str, float] = {
+    # Analytical / structured output — low temperature for precision
+    "resume-review":       0.3,
+    "decode-jd":           0.3,
+    "mine-stories":        0.3,
+    # Research / synthesis — mid temperature for balanced output
+    "anticipate-concerns": 0.5,
+    "company-research":    0.5,
+    "interview-intel":     0.5,
+    "salary-coach":        0.5,
+    # Creative / conversational — higher temperature for variety
+    "build-pitches":       0.9,
+    "mock-interview":      0.9,
+    "resume-chat":         0.9,
+}
+_DEFAULT_TEMPERATURE = 0.7
+
+# Sentinel meaning "derive temperature from the section map" (distinct from None = "use API default")
+_UNSET_TEMPERATURE = object()
+
+
+def get_temperature(section: str) -> float:
+    """Return the configured temperature for a workflow section."""
+    return _SECTION_TEMPERATURES.get(section, _DEFAULT_TEMPERATURE)
+
+
 # ── Provider selection ───────────────────────────────────────────────────────
 
 def get_active_provider() -> str:
@@ -112,7 +140,7 @@ def _openai_cost(model: str, prompt_tokens: int, completion_tokens: int) -> floa
 # ── OpenAI: chat completions (no web search) ─────────────────────────────────
 
 async def _iter_openai_chat(
-    prompt: str, system: str, model: str
+    prompt: str, system: str, model: str, temperature: "float | None" = _DEFAULT_TEMPERATURE
 ) -> AsyncIterator[dict[str, Any]]:
     import openai
     client = openai.AsyncOpenAI()
@@ -142,6 +170,7 @@ async def _iter_openai_chat(
                 messages=messages,
                 stream=True,
                 stream_options={"include_usage": True},
+                **({"temperature": temperature} if temperature is not None else {}),
             )
             async for chunk in stream:
                 if chunk.choices:
@@ -204,6 +233,7 @@ async def _iter_openai_responses_impl(
         model=model,
         tools=[{"type": "web_search_preview"}],
         input=input_messages,
+        max_output_tokens=8000,
     ) as stream:
         async for event in stream:
             event_type = getattr(event, "type", "")
@@ -338,7 +368,7 @@ async def _fetch_url(url: str, timeout: float = 15.0) -> str:
 # ── Ollama: OpenAI-compatible chat completions ───────────────────────────────
 
 async def _iter_ollama_chat(
-    prompt: str, system: str, model: str, base_url: str
+    prompt: str, system: str, model: str, base_url: str, temperature: "float | None" = _DEFAULT_TEMPERATURE
 ) -> AsyncIterator[dict[str, Any]]:
     import openai
     client = openai.AsyncOpenAI(
@@ -357,6 +387,7 @@ async def _iter_ollama_chat(
         model=model,
         messages=messages,
         stream=True,
+        **({"temperature": temperature} if temperature is not None else {}),
     )
     chunk_count = 0
     async for chunk in stream:
@@ -428,7 +459,7 @@ _OLLAMA_WEB_TOOLS = [
 
 
 async def _iter_ollama_web(
-    prompt: str, system: str, model: str, base_url: str
+    prompt: str, system: str, model: str, base_url: str, temperature: "float | None" = _DEFAULT_TEMPERATURE
 ) -> AsyncIterator[dict[str, Any]]:
     import openai
 
@@ -457,6 +488,7 @@ async def _iter_ollama_web(
             messages=messages,
             tools=_OLLAMA_WEB_TOOLS,
             stream=True,
+            **({"temperature": temperature} if temperature is not None else {}),
         )
         async for chunk in stream:
             if not chunk.choices:
@@ -544,11 +576,13 @@ async def _iter_ollama_web(
 # ── Anthropic: direct Messages API (no web search) ───────────────────────────
 
 async def _iter_anthropic_chat_impl(
-    prompt: str, system: str, model: str
+    prompt: str, system: str, model: str, temperature: "float | None" = _DEFAULT_TEMPERATURE
 ) -> AsyncIterator[dict[str, Any]]:
     import anthropic
     client = anthropic.AsyncAnthropic()
     kwargs: dict = dict(model=model, max_tokens=16000, messages=[{"role": "user", "content": prompt}])
+    if temperature is not None:
+        kwargs["temperature"] = temperature
     if system:
         kwargs["system"] = system
 
@@ -594,7 +628,7 @@ async def _iter_anthropic_chat_impl(
 
 
 async def _iter_anthropic_chat(
-    prompt: str, system: str, model: str
+    prompt: str, system: str, model: str, temperature: "float | None" = _DEFAULT_TEMPERATURE
 ) -> AsyncIterator[dict[str, Any]]:
     import asyncio
     import anthropic
@@ -602,7 +636,7 @@ async def _iter_anthropic_chat(
     for _attempt in range(_MAX_ATTEMPTS):
         received_any = False
         try:
-            async for event in _iter_anthropic_chat_impl(prompt, system, model):
+            async for event in _iter_anthropic_chat_impl(prompt, system, model, temperature):
                 if event.get("type") == "receive":
                     received_any = True
                 yield event
@@ -622,7 +656,7 @@ async def _iter_anthropic_chat(
 # ── Anthropic: direct Messages API with web_search tool ──────────────────────
 
 async def _iter_anthropic_web_impl(
-    prompt: str, system: str, model: str
+    prompt: str, system: str, model: str, temperature: "float | None" = _DEFAULT_TEMPERATURE
 ) -> AsyncIterator[dict[str, Any]]:
     import anthropic
     client = anthropic.AsyncAnthropic()
@@ -632,6 +666,8 @@ async def _iter_anthropic_web_impl(
         messages=[{"role": "user", "content": prompt}],
         tools=[{"type": "web_search_20250305", "name": "web_search"}],
     )
+    if temperature is not None:
+        kwargs["temperature"] = temperature
     if system:
         kwargs["system"] = system
 
@@ -707,7 +743,7 @@ async def _iter_anthropic_web_impl(
 
 
 async def _iter_anthropic_web(
-    prompt: str, system: str, model: str
+    prompt: str, system: str, model: str, temperature: "float | None" = _DEFAULT_TEMPERATURE
 ) -> AsyncIterator[dict[str, Any]]:
     import asyncio
     import anthropic
@@ -715,7 +751,7 @@ async def _iter_anthropic_web(
     for _attempt in range(_MAX_ATTEMPTS):
         received_any = False
         try:
-            async for event in _iter_anthropic_web_impl(prompt, system, model):
+            async for event in _iter_anthropic_web_impl(prompt, system, model, temperature):
                 if event.get("type") in ("receive", "tool_use"):
                     received_any = True
                 yield event
@@ -819,6 +855,7 @@ async def iter_text_query(
     prompt: str,
     options: ClaudeAgentOptions,
     trace_name: str = "query",
+    temperature: "float | None | object" = _UNSET_TEMPERATURE,
 ) -> AsyncIterator[dict[str, Any]]:
     """Yield request/response events for a text-producing query.
 
@@ -835,6 +872,12 @@ async def iter_text_query(
 
     provider = get_active_provider()
     uses_web = bool(set(getattr(options, "allowed_tools", []) or []) & _WEB_TOOLS)
+    # _UNSET_TEMPERATURE → derive from section map; None → skip (use API default); float → use as-is
+    if temperature is _UNSET_TEMPERATURE:
+        temperature = get_temperature(trace_name)
+    # Anthropic and Ollama cap temperature at 1.0; clamp silently rather than letting the API reject it
+    if isinstance(temperature, float) and provider in ("anthropic", "ollama"):
+        temperature = min(1.0, temperature)
 
     if provider == "ollama":
         model = os.environ.get("OLLAMA_MODEL", "llama3.2").strip() or "llama3.2"
@@ -843,7 +886,7 @@ async def iter_text_query(
         complete_event: dict | None = None
         _stream_exc: Exception | None = None
         try:
-            src = _iter_ollama_web(prompt, system_text, model, base_url) if uses_web else _iter_ollama_chat(prompt, system_text, model, base_url)
+            src = _iter_ollama_web(prompt, system_text, model, base_url, temperature) if uses_web else _iter_ollama_chat(prompt, system_text, model, base_url, temperature)
             async for event in src:
                 etype = event.get("type")
                 print(f"[Langfuse] event: {etype}", flush=True)
@@ -871,7 +914,7 @@ async def iter_text_query(
         complete_event = None
         _stream_exc = None
         try:
-            src = _iter_openai_responses(prompt, system_text, model) if uses_web else _iter_openai_chat(prompt, system_text, model)
+            src = _iter_openai_responses(prompt, system_text, model) if uses_web else _iter_openai_chat(prompt, system_text, model, temperature)
             async for event in src:
                 if event.get("type") == "complete":
                     complete_event = event
@@ -894,7 +937,7 @@ async def iter_text_query(
     complete_event = None
     _stream_exc = None
     try:
-        src = _iter_anthropic_web(prompt, system_text, model) if uses_web else _iter_anthropic_chat(prompt, system_text, model)
+        src = _iter_anthropic_web(prompt, system_text, model, temperature) if uses_web else _iter_anthropic_chat(prompt, system_text, model, temperature)
         async for event in src:
             if event.get("type") == "complete":
                 complete_event = event

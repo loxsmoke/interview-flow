@@ -208,6 +208,19 @@
           const tmp = document.createElement('textarea');
           tmp.innerHTML = block.innerHTML;
           let definition = tmp.value.trim();
+          // Strip Mermaid markdown-string labels (backtick-quoted) because Mermaid 11.x
+          // renders "Unsupported markdown: list" literally when bullet lists appear inside
+          // them. Handles both ["`...`"] (quoted) and [`...`] (unquoted) forms.
+          definition = definition.replace(/\["?`([\s\S]*?)`"?\]/g, (_, inner) => {
+            const lines = inner.split('\n')
+              .map(l => l.replace(/^\s*[-*\d]+\.?\s*/, '').trim())
+              .filter(Boolean);
+            return `["${lines.join('\\n')}"]`;
+          });
+          // Reorient `graph TD` to `graph LR` for better readability — LR uses the full
+          // viewport width and keeps node labels wider. `flowchart TD` is left alone
+          // because salary-coach decision trees are intentionally top-down.
+          definition = definition.replace(/^(graph)\s+TD\b/m, '$1 LR');
           // Normalize line breaks: replace literal \n sequences and <br/> variants with <br/>
           // so Mermaid's htmlLabels rendering splits them into actual line breaks.
           definition = definition.replace(/\\n/g, '<br/>');
@@ -2318,7 +2331,7 @@
             retryRemaining: event.remaining_seconds,
           }));
         } else if (event.type === 'complete') {
-          if (event.stories) setStories(prev => [...prev, ...event.stories]);
+          if (event.stories) setStories(event.stories);
           setCostUsd(event.cost_usd || 0);
           setModelName(event.model_name || '');
           setDurationMs(event.duration_ms || 0);
@@ -3092,8 +3105,8 @@
             </div>
           )}
 
-          {!(isRunning && liveTrace) && analysis && (
-            <div ref={splitContainerRef} className={`flex flex-1 min-h-0${isVertical ? ' flex-col' : ''}`}>
+          {analysis && (
+            <div ref={splitContainerRef} className={`flex flex-1 min-h-0${isVertical ? ' flex-col' : ''}`} style={{display: (isRunning && liveTrace) ? 'none' : 'flex'}}>
               {/* Left: AI Analysis */}
               <div style={isVertical ? { height: `${splitPct}%` } : { width: `${splitPct}%` }} className="flex flex-col min-h-0 min-w-0">
                 <h3 className="text-sm font-semibold text-slate-400 uppercase mb-3 shrink-0">AI Analysis & Suggestions</h3>
@@ -3353,6 +3366,7 @@
       const [name, setName] = useState(action.name || '');
       const [description, setDescription] = useState(action.description || '');
       const [promptTemplate, setPromptTemplate] = useState(action.prompt_template || '');
+      const [temperatureInput, setTemperatureInput] = useState(action.temperature != null ? String(action.temperature) : '');
       const [nameError, setNameError] = useState('');
       const [saving, setSaving] = useState(false);
       const [result, setResult] = useState(actionResult?.result || '');
@@ -3412,9 +3426,10 @@
 
       const doSave = async () => {
         const trimmed = name.trim();
+        const parsedTemp = temperatureInput.trim() === '' ? null : parseFloat(temperatureInput);
         setSaving(true);
         try {
-          await api.put(`/custom-actions/${action.id}`, { name: trimmed, description, prompt_template: promptTemplate });
+          await api.put(`/custom-actions/${action.id}`, { name: trimmed, description, prompt_template: promptTemplate, temperature: parsedTemp });
           await onUpdate();
           setEditing(false);
           setShowTagWarning(false);
@@ -3576,7 +3591,7 @@
             <div className="flex gap-2 shrink-0">
               {editing ? (
                 <>
-                  <button onClick={() => { setName(action.name); setDescription(action.description); setPromptTemplate(action.prompt_template || ''); setNameError(''); setEditing(false); }}
+                  <button onClick={() => { setName(action.name); setDescription(action.description); setPromptTemplate(action.prompt_template || ''); setTemperatureInput(action.temperature != null ? String(action.temperature) : ''); setNameError(''); setEditing(false); }}
                     className="px-4 py-2.5 rounded-xl text-sm font-medium border border-slate-700 text-slate-300 hover:bg-slate-800 transition">Cancel</button>
                   <button onClick={handleSaveEdit} disabled={saving || !name.trim()}
                     className="px-5 py-2.5 rounded-xl font-medium text-white bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 transition">
@@ -3595,6 +3610,28 @@
                   </button>
                 </>
               )}
+            </div>
+          </div>
+
+          {/* Temperature control — always mounted, hidden when not editing */}
+          <div className="mb-4 shrink-0 p-3 bg-slate-900/50 border border-slate-800 rounded-xl" style={{display: editing ? '' : 'none'}}>
+            <div className="flex items-center gap-3 mb-2">
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide shrink-0">Temperature</label>
+              <input
+                type="number"
+                min="0" max="2" step="0.1"
+                value={temperatureInput}
+                onChange={(e) => setTemperatureInput(e.target.value)}
+                placeholder="API default"
+                className="w-28 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 text-sm placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition"
+              />
+              <span className="text-xs text-slate-500">empty = API default (~1.0)</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-slate-500">
+              <span><span className="font-mono text-slate-400">0.0–0.3</span> Precise / structured output</span>
+              <span><span className="font-mono text-slate-400">0.7–1.0</span> Creative / conversational</span>
+              <span><span className="font-mono text-slate-400">0.4–0.6</span> Balanced / research</span>
+              <span><span className="font-mono text-slate-400">1.1–2.0</span> Highly random (OpenAI only)</span>
             </div>
           </div>
 
@@ -3642,6 +3679,12 @@
               </summary>
               <pre className="mt-2 px-4 py-3 bg-slate-900/60 border border-slate-800 rounded-xl text-xs text-slate-400 font-mono whitespace-pre-wrap overflow-auto max-h-48">{action.prompt_template}</pre>
             </details>
+          )}
+          {!editing && action.temperature != null && (
+            <div className="mb-4 shrink-0">
+              <span className="text-xs text-slate-500">Temperature: </span>
+              <span className="text-xs font-mono text-slate-400">{action.temperature}</span>
+            </div>
           )}
 
           {isRunning && liveTrace ? (

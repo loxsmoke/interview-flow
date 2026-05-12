@@ -18,7 +18,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Callable, Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -1015,7 +1015,7 @@ def _queued_section_stream(state_id: str, section_key: str) -> AsyncIterator[byt
     if section_key == "stories":
         if not s.resume:
             raise HTTPException(400, "Resume required for story mining")
-        return _stream_saved_story_mining(state_id, _resume_for_ai(s), s.job_posting, stories_as_text(s.stories))
+        return _stream_saved_story_mining(state_id, _resume_for_ai(s), s.job_posting)
 
     if section_key.startswith("custom:"):
         action_id = section_key.split(":", 1)[1]
@@ -1041,7 +1041,7 @@ def _queued_section_stream(state_id: str, section_key: str) -> AsyncIterator[byt
             state_id=state_id,
             action_id=action_id,
             action_name=action.name,
-            stream=iter_text_query(prompt=prompt, options=options, trace_name="custom-action"),
+            stream=iter_text_query(prompt=prompt, options=options, trace_name="custom-action", temperature=action.temperature),
         )
 
     raise HTTPException(400, "Section queue execution is not implemented yet")
@@ -1051,7 +1051,6 @@ async def _stream_saved_story_mining(
     state_id: str,
     resume: str,
     job_posting: str,
-    existing: str,
 ) -> AsyncIterator[bytes]:
     raw = ""
     cost_usd = 0.0
@@ -1059,7 +1058,7 @@ async def _stream_saved_story_mining(
     duration_ms = 0
     saw_complete = False
     try:
-        async for event in stream_mine_stories(resume, job_posting, existing):
+        async for event in stream_mine_stories(resume, job_posting):
             if event.get("type") == "complete":
                 saw_complete = True
                 raw = event.get("text", "").strip()
@@ -1100,7 +1099,7 @@ async def _stream_saved_story_mining(
         ]
         async with db.get_lock(state_id):
             s_up = get_state(state_id)
-            s_up.stories.extend(new_stories)
+            s_up.stories = new_stories
             s_up.stories_cost_usd = cost_usd
             s_up.stories_model_name = model_name
             s_up.stories_duration_ms = duration_ms
@@ -2733,8 +2732,7 @@ async def mine_stories_endpoint(state_id: str):
     require_ai_api_key()
 
     try:
-        existing = stories_as_text(s.stories)
-        result = await mine_stories(_resume_for_ai(s), s.job_posting, existing)
+        result = await mine_stories(_resume_for_ai(s), s.job_posting)
         query_ran_at = datetime.now().isoformat()
 
         new_stories = []
@@ -2753,7 +2751,7 @@ async def mine_stories_endpoint(state_id: str):
 
         async with db.get_lock(state_id):
             s = get_state(state_id)
-            s.stories.extend(new_stories)
+            s.stories = new_stories
             s.stories_cost_usd = result.get("cost_usd") or 0.0
             s.stories_model_name = result.get("model_name") or ""
             s.stories_duration_ms = result.get("duration_ms") or 0
@@ -2780,8 +2778,6 @@ async def mine_stories_stream_endpoint(state_id: str):
     if not s.resume:
         raise HTTPException(400, "Resume required for story mining")
     require_ai_api_key()
-    existing = stories_as_text(s.stories)
-
     async def generate():
         raw = ""
         cost_usd = 0.0
@@ -2789,7 +2785,7 @@ async def mine_stories_stream_endpoint(state_id: str):
         duration_ms = 0
         saw_complete = False
         try:
-            async for event in stream_mine_stories(_resume_for_ai(s), s.job_posting, existing):
+            async for event in stream_mine_stories(_resume_for_ai(s), s.job_posting):
                 if event.get("type") == "complete":
                     saw_complete = True
                     raw = event.get("text", "").strip()
@@ -2828,7 +2824,7 @@ async def mine_stories_stream_endpoint(state_id: str):
                 ]
                 async with db.get_lock(state_id):
                     s_up = get_state(state_id)
-                    s_up.stories.extend(new_stories)
+                    s_up.stories = new_stories
                     s_up.stories_cost_usd = cost_usd
                     s_up.stories_model_name = model_name
                     s_up.stories_duration_ms = duration_ms
@@ -3166,6 +3162,7 @@ class CustomActionBody(BaseModel):
     name: str = Field(max_length=200)
     description: str = Field(default="", max_length=10_000)
     prompt_template: str = Field(default="", max_length=100_000)
+    temperature: Optional[float] = None
 
 
 class CustomActionRunBody(BaseModel):
@@ -3208,6 +3205,7 @@ async def update_custom_action(action_id: str, body: CustomActionBody):
         action.name = name
         action.description = body.description
         action.prompt_template = body.prompt_template
+        action.temperature = body.temperature
         save_custom_actions(actions)
     return {"ok": True}
 
@@ -3258,7 +3256,7 @@ async def run_custom_action_stream(action_id: str, body: CustomActionRunBody):
         duration_ms_val = 0
         query_ran_at_val = ""
         try:
-            async for event in iter_text_query(prompt=prompt, options=options, trace_name="custom-action"):
+            async for event in iter_text_query(prompt=prompt, options=options, trace_name="custom-action", temperature=action.temperature):
                 if event.get("type") == "complete":
                     result_text = event.get("text", "")
                     cost_usd = event.get("cost_usd", 0.0) or 0.0

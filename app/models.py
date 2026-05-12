@@ -30,6 +30,7 @@ class CustomAction(BaseModel):
     name: str = "Custom Action"
     description: str = ""
     prompt_template: str = ""
+    temperature: Optional[float] = None  # None = use API default
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
