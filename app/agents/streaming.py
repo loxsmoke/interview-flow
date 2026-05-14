@@ -365,38 +365,56 @@ async def _fetch_url(url: str, timeout: float = 15.0) -> str:
     return text[:8000]
 
 
-# ── Ollama: OpenAI-compatible chat completions ───────────────────────────────
+# ── Ollama helpers ────────────────────────────────────────────────────────────
+
+def _ollama_options(temperature: "float | None" = None) -> dict:
+    """Return the options dict for native Ollama /api/chat calls."""
+    options: dict = {}
+    raw = os.environ.get("OLLAMA_NUM_CTX", "").strip()
+    if raw:
+        try:
+            options["num_ctx"] = int(raw)
+        except ValueError:
+            pass
+    if temperature is not None:
+        options["temperature"] = temperature
+    return options
+
+
+# ── Ollama: native /api/chat streaming ───────────────────────────────────────
 
 async def _iter_ollama_chat(
     prompt: str, system: str, model: str, base_url: str, temperature: "float | None" = _DEFAULT_TEMPERATURE
 ) -> AsyncIterator[dict[str, Any]]:
-    import openai
-    client = openai.AsyncOpenAI(
-        base_url=f"{base_url.rstrip('/')}/v1",
-        api_key="ollama",  # Ollama ignores the key but the SDK requires a non-empty value
-    )
+    import httpx
     messages: list[dict] = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
+    body: dict = {"model": model, "messages": messages, "stream": True}
+    opts = _ollama_options(temperature)
+    if opts:
+        body["options"] = opts
+
     full_text: list[str] = []
+    chunk_count = 0
     t0 = time.monotonic()
 
-    stream = await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        stream=True,
-        **({"temperature": temperature} if temperature is not None else {}),
-    )
-    chunk_count = 0
-    async for chunk in stream:
-        if chunk.choices:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                full_text.append(delta)
-                chunk_count += 1
-                yield {"type": "receive", "text": delta}
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        async with client.stream("POST", f"{base_url.rstrip('/')}/api/chat", json=body) as response:
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                try:
+                    chunk = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                content = chunk.get("message", {}).get("content", "")
+                if content:
+                    full_text.append(content)
+                    chunk_count += 1
+                    yield {"type": "receive", "text": content}
 
     print(f"[Ollama] stream loop done: {chunk_count} chunks, {len(full_text)} parts", flush=True)
     duration_ms = int((time.monotonic() - t0) * 1000)
@@ -461,12 +479,8 @@ _OLLAMA_WEB_TOOLS = [
 async def _iter_ollama_web(
     prompt: str, system: str, model: str, base_url: str, temperature: "float | None" = _DEFAULT_TEMPERATURE
 ) -> AsyncIterator[dict[str, Any]]:
-    import openai
+    import httpx
 
-    client = openai.AsyncOpenAI(
-        base_url=f"{base_url.rstrip('/')}/v1",
-        api_key="ollama",
-    )
     messages: list[dict] = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -475,69 +489,53 @@ async def _iter_ollama_web(
     all_tool_uses: list[dict] = []
     full_text: list[str] = []
     searches_done = 0
-    searches_failed = 0   # network / API errors
-    searches_empty = 0    # query ran but returned no results
+    searches_failed = 0
+    searches_empty = 0
     t0 = time.monotonic()
 
-    for _turn in range(15):
-        content_parts: list[str] = []
-        pending: dict[int, dict] = {}  # index -> {id, name, args_parts}
+    opts = _ollama_options(temperature)
+    native_url = f"{base_url.rstrip('/')}/api/chat"
 
-        stream = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            tools=_OLLAMA_WEB_TOOLS,
-            stream=True,
-            **({"temperature": temperature} if temperature is not None else {}),
-        )
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-            choice = chunk.choices[0]
-            delta = choice.delta
+    for _turn in range(20):
+        # Non-streaming for tool-calling turns so tool_calls arrive as a complete object
+        body: dict = {
+            "model": model,
+            "messages": messages,
+            "tools": _OLLAMA_WEB_TOOLS,
+            "stream": False,
+        }
+        if opts:
+            body["options"] = opts
 
-            if delta.content:
-                content_parts.append(delta.content)
-                full_text.append(delta.content)
-                yield {"type": "receive", "text": delta.content}
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(native_url, json=body)
+            resp.raise_for_status()
+            data = resp.json()
 
-            if delta.tool_calls:
-                for tc_delta in delta.tool_calls:
-                    idx = tc_delta.index
-                    if idx not in pending:
-                        pending[idx] = {"id": "", "name": "", "args_parts": []}
-                    if tc_delta.id:
-                        pending[idx]["id"] = tc_delta.id
-                    if tc_delta.function:
-                        if tc_delta.function.name:
-                            pending[idx]["name"] = tc_delta.function.name
-                        if tc_delta.function.arguments:
-                            pending[idx]["args_parts"].append(tc_delta.function.arguments)
+        msg = data.get("message", {})
+        content = msg.get("content", "")
+        tool_calls = msg.get("tool_calls") or []
 
-        if not pending:
+        if content:
+            full_text.append(content)
+            yield {"type": "receive", "text": content}
+
+        if not tool_calls:
             break  # no tool calls — final answer done
 
-        # Append assistant turn with tool calls to history
-        messages.append({
-            "role": "assistant",
-            "content": "".join(content_parts),
-            "tool_calls": [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {"name": tc["name"], "arguments": "".join(tc["args_parts"])},
-                }
-                for tc in pending.values()
-            ],
-        })
+        # Append assistant message (with tool_calls) to history
+        messages.append(msg)
 
         # Execute each tool and inject results
-        for tc in pending.values():
-            fn_name = tc["name"]
-            try:
-                fn_args = _json.loads("".join(tc["args_parts"]))
-            except Exception:
-                fn_args = {}
+        for tc in tool_calls:
+            fn = tc.get("function", {})
+            fn_name = fn.get("name", "")
+            fn_args = fn.get("arguments", {})
+            if isinstance(fn_args, str):
+                try:
+                    fn_args = _json.loads(fn_args)
+                except Exception:
+                    fn_args = {}
 
             if fn_name == "web_search":
                 query = fn_args.get("query", "")
@@ -559,7 +557,31 @@ async def _iter_ollama_web(
             else:
                 result = f"Unknown tool: {fn_name}"
 
-            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+            messages.append({"role": "tool", "content": result})
+
+    # Synthesis fallback: if model did tool calls but produced no text, prompt it to write up
+    if not full_text and all_tool_uses:
+        messages.append({
+            "role": "user",
+            "content": "Based on your research above, please write your complete analysis and findings now.",
+        })
+        body = {"model": model, "messages": messages, "stream": True}
+        if opts:
+            body["options"] = opts
+
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            async with client.stream("POST", native_url, json=body) as response:
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        chunk = _json.loads(line)
+                    except _json.JSONDecodeError:
+                        continue
+                    text = chunk.get("message", {}).get("content", "")
+                    if text:
+                        full_text.append(text)
+                        yield {"type": "receive", "text": text}
 
     duration_ms = int((time.monotonic() - t0) * 1000)
     yield {
@@ -571,6 +593,19 @@ async def _iter_ollama_web(
         "tool_uses": all_tool_uses,
         "search_status": _search_status(searches_done, searches_failed, searches_empty),
     }
+
+
+async def ollama_chat_once(messages: list[dict], model: str, base_url: str, temperature: float | None) -> str:
+    """Single non-streaming Ollama chat call via native /api/chat (respects num_ctx)."""
+    import httpx
+    body: dict = {"model": model, "messages": messages, "stream": False}
+    opts = _ollama_options(temperature)
+    if opts:
+        body["options"] = opts
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(f"{base_url.rstrip('/')}/api/chat", json=body)
+        resp.raise_for_status()
+        return resp.json().get("message", {}).get("content", "")
 
 
 # ── Anthropic: direct Messages API (no web search) ───────────────────────────

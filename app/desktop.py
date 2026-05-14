@@ -23,7 +23,8 @@ import time
 import urllib.request
 from pathlib import Path
 
-TITLE = "Interview Flow"
+from app import APP_VERSION
+TITLE = f"Interview Flow v{APP_VERSION}"
 PREFERRED_PORT = 8000
 
 

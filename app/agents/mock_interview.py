@@ -128,12 +128,11 @@ class MockInterviewSession:
         return ""  # unreachable
 
     async def _ollama_turn(self) -> str:
-        import openai, os
+        import os
+        from app.agents.streaming import ollama_chat_once
         model = os.environ.get("OLLAMA_MODEL", "llama3.2").strip() or "llama3.2"
         base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").strip() or "http://localhost:11434"
-        client = openai.AsyncOpenAI(base_url=f"{base_url.rstrip('/')}/v1", api_key="ollama")
-        resp = await client.chat.completions.create(model=model, messages=self._messages, temperature=_TEMPERATURE)
-        return resp.choices[0].message.content or ""
+        return await ollama_chat_once(self._messages, model, base_url, _TEMPERATURE)
 
     async def _anthropic_turn(self) -> str:
         import anthropic, os

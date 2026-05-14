@@ -537,6 +537,7 @@
       const [openaiModel, setOpenaiModel] = useState('gpt-4o');
       const [ollamaBaseUrl, setOllamaBaseUrl] = useState('http://localhost:11434');
       const [ollamaModel, setOllamaModel] = useState('');
+      const [ollamaNumCtx, setOllamaNumCtx] = useState('');
       const [ollamaModels, setOllamaModels] = useState(null);
       const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
       const [dataDir, setDataDir] = useState('');
@@ -548,6 +549,17 @@
       const [dataFiles, setDataFiles] = useState([]);
       const [dataFilesExtra, setDataFilesExtra] = useState(0);
       const [pendingDataDir, setPendingDataDir] = useState('');
+
+      const CTX_STEPS = [
+        { label: 'Default', value: '' },
+        { label: '4k',   value: '4096'   },
+        { label: '8k',   value: '8192'   },
+        { label: '16k',  value: '16384'  },
+        { label: '32k',  value: '32768'  },
+        { label: '64k',  value: '65536'  },
+        { label: '128k', value: '131072' },
+        { label: '256k', value: '262144' },
+      ];
 
       const ANTHROPIC_MODELS = [
         { id: 'claude-sonnet-4-6',         label: 'Claude Sonnet 4.6',  note: 'Balanced, recommended' },
@@ -583,6 +595,7 @@
           setOpenaiModel(cfg.openai_model || 'gpt-4o');
           setOllamaBaseUrl(cfg.ollama_base_url || 'http://localhost:11434');
           setOllamaModel(cfg.ollama_model || '');
+          setOllamaNumCtx(cfg.ollama_num_ctx || '');
           if (cfg.active_provider) setSelectedProvider(cfg.active_provider);
           if (cfg.data_dir) { setDataDir(cfg.data_dir); setSavedDataDir(cfg.data_dir); }
           if (cfg.default_data_dir) setDefaultDataDir(cfg.default_data_dir);
@@ -601,7 +614,7 @@
           const body = { active_provider: provider };
           if (provider === 'anthropic') { body.anthropic_api_key = anthropicKey; body.anthropic_model = anthropicModel; }
           if (provider === 'openai') { body.openai_api_key = openaiKey; body.openai_model = openaiModel; }
-          if (provider === 'ollama') { body.ollama_base_url = ollamaBaseUrl; body.ollama_model = ollamaModel; }
+          if (provider === 'ollama') { body.ollama_base_url = ollamaBaseUrl; body.ollama_model = ollamaModel; body.ollama_num_ctx = ollamaNumCtx; }
           await api.post('/config', body);
           setSaveMsg({ text: 'Saved', ok: true });
           await loadConfig();
@@ -868,6 +881,31 @@
                                   <p className="text-xs text-yellow-400">This model does not support tool calling. Sections marked with <WebSearchBadge size={11} /> will not be able to search the web.</p>
                                 </div>
                               )}
+                            </div>
+                            <div>
+                              {(() => {
+                                const ctxIdx = Math.max(0, CTX_STEPS.findIndex(s => s.value === ollamaNumCtx));
+                                return (<>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <label className="text-xs font-medium text-slate-400">Context size <span className="font-normal text-slate-600">(num_ctx)</span></label>
+                                    <span className="text-xs font-semibold text-indigo-400">{CTX_STEPS[ctxIdx].label}</span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min={0}
+                                    max={CTX_STEPS.length - 1}
+                                    step={1}
+                                    value={ctxIdx}
+                                    onChange={e => setOllamaNumCtx(CTX_STEPS[parseInt(e.target.value)].value)}
+                                    className="w-full accent-indigo-500 cursor-pointer"
+                                  />
+                                  <div className="flex justify-between mt-1">
+                                    {CTX_STEPS.map(s => (
+                                      <span key={s.label} className="text-xs text-slate-600">{s.label}</span>
+                                    ))}
+                                  </div>
+                                </>);
+                              })()}
                             </div>
                             <div className="flex justify-end pt-1">
                               <button
@@ -3773,12 +3811,12 @@
     }
 
     // ── About ────────────────────────────────────────────────────────────────
-    function AboutStep() {
+    function AboutStep({ appVersion = '' }) {
       return (
         <div className="fade-in w-full flex flex-col flex-1 min-h-0 pr-8 max-w-2xl">
           <div className="flex items-baseline gap-3 mb-1 shrink-0">
             <h2 className="text-2xl font-bold">Interview Flow</h2>
-            <span className="text-sm text-slate-500 font-mono">v0.1.0</span>
+            {appVersion && <span className="text-sm text-slate-500 font-mono">v{appVersion}</span>}
           </div>
           <p className="text-slate-400 mb-8 shrink-0">AI-powered interview coaching — research, prep, practice, and debrief in one place.</p>
 
@@ -3850,6 +3888,7 @@
       const [newActionName, setNewActionName] = useState('');
       const [newActionError, setNewActionError] = useState('');
       const [queueStatus, setQueueStatus] = useState({ running: null, queued: [], failed: [] });
+      const [appVersion, setAppVersion] = useState('');
       const totalQueryDetails = [
         {
           label: 'Company Research',
@@ -3954,6 +3993,7 @@
 
       const checkConfig = useCallback(() => {
         api.get('/config').then(cfg => {
+          if (cfg.version) setAppVersion(cfg.version);
           const configured = cfg.anthropic_api_key_set || !!cfg.openai_api_key || !!(cfg.ollama_base_url && cfg.ollama_model);
           setNeedsConfig(!configured);
           if (!configured) {
@@ -3969,9 +4009,10 @@
       const titleCompany = (stateData && stateData.company_name) || '';
       const titlePosition = (stateData && stateData.position) || '';
       useEffect(() => {
+        const appName = appVersion ? `Interview Flow v${appVersion}` : 'Interview Flow';
         const parts = [titleCompany, titlePosition].filter(Boolean).join(' — ');
-        document.title = parts ? `${parts} | Interview Flow` : 'Interview Flow';
-      }, [titleCompany, titlePosition]);
+        document.title = parts ? `${parts} | ${appName}` : appName;
+      }, [titleCompany, titlePosition, appVersion]);
 
       const refreshState = useCallback(async (id = stateId) => {
         if (!id) return null;
@@ -4027,6 +4068,13 @@
         setCompletedSteps(state.completed_steps || ['setup']);
         setIsTech(isTechnicalRole(state.position));
         setCurrentStep('resume');
+        setExistingStates(prev => {
+          const idx = prev.findIndex(s => s.id === state.id);
+          if (idx === -1) return prev;
+          const next = [...prev];
+          next[idx] = { ...next[idx], company_name: state.company_name, position: state.position };
+          return next;
+        });
       };
 
       const deleteState = async (id) => {
@@ -4088,7 +4136,7 @@
       }, [stateId, refreshState]);
 
       const renderStep = () => {
-        if (currentStep === 'about') return <AboutStep />;
+        if (currentStep === 'about') return <AboutStep appVersion={appVersion} />;
         if (currentStep === 'config') return <AppConfigStep onSaved={checkConfig} />;
         if (currentStep.startsWith('custom_')) {
           const actionId = currentStep.slice(7);

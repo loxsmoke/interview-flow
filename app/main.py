@@ -132,7 +132,8 @@ async def lifespan(app: FastAPI):
         store.clear()
 
 
-app = FastAPI(title="Interview Flow", version="0.1.0", lifespan=lifespan)
+from app import APP_VERSION
+app = FastAPI(title="Interview Flow", version=APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -523,6 +524,7 @@ async def get_config():
     anthropic_model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6").strip() or "claude-sonnet-4-6"
     ollama_base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").strip() or "http://localhost:11434"
     ollama_model = os.environ.get("OLLAMA_MODEL", "").strip()
+    ollama_num_ctx = os.environ.get("OLLAMA_NUM_CTX", "").strip()
     _KNOWN_FILE_NOTES = {
         db.DATA_FILE_NAME: "sessions",
         db.CUSTOM_ACTIONS_FILE_NAME: "custom actions",
@@ -535,6 +537,7 @@ async def get_config():
         data_files, data_files_extra = [], 0
 
     return {
+        "version": APP_VERSION,
         "active_provider": get_active_provider(),
         "anthropic_api_key": clean_anthropic,
         "anthropic_api_key_set": bool(clean_anthropic),
@@ -543,6 +546,7 @@ async def get_config():
         "openai_model": openai_model,
         "ollama_base_url": ollama_base_url,
         "ollama_model": ollama_model,
+        "ollama_num_ctx": ollama_num_ctx,
         "langfuse_enabled": bool(langfuse_public and langfuse_secret),
         "langfuse_baseurl": langfuse_url or None,
         "data_dir": str(db.DATA_DIR),
@@ -590,6 +594,13 @@ async def update_config(body: dict):
         if val:
             os.environ["OLLAMA_MODEL"] = val
             env_updates["OLLAMA_MODEL"] = val
+    if isinstance(body.get("ollama_num_ctx"), str):
+        val = body["ollama_num_ctx"].strip()
+        if val:
+            os.environ["OLLAMA_NUM_CTX"] = val
+            env_updates["OLLAMA_NUM_CTX"] = val
+        else:
+            os.environ.pop("OLLAMA_NUM_CTX", None)
     if isinstance(body.get("data_dir"), str):
         val = body["data_dir"].strip()
         if val:
