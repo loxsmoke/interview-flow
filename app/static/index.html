@@ -1047,6 +1047,7 @@
                           <span className="text-slate-600 shrink-0">•</span>
                           <span className="font-mono text-slate-400">{f.name}</span>
                           {f.note && <span className="text-slate-600">— {f.note}</span>}
+                          {f.size_bytes != null && <span className="text-slate-600">— {formatBytes(f.size_bytes)}</span>}
                         </li>
                       ))}
                       {dataFilesExtra > 0 && (
@@ -1279,7 +1280,7 @@
     }
 
     // ── Setup Step ──────────────────────────────────────────────────────────
-    function SetupStep({ onSetup, existingStates, onLoadState, onDeleteState, onCloneState, onNewApplication, loadedStateId = '', initialJobPosting = '', initialResume = '', initialResumeRaw = '', initialCompanyName = '', initialPosition = '', onTechChange }) {
+    function SetupStep({ onSetup, existingStates, onLoadState, onDeleteState, onCloneState, onNewApplication, loadedStateId = '', initialJobPosting = '', initialResume = '', initialResumeRaw = '', initialCompanyName = '', initialPosition = '', onTechChange, activeProvider = '', activeModel = '' }) {
       const [jobPosting, setJobPosting] = useState(initialJobPosting);
       const [resume] = useState(initialResume);
       const [resumeRaw] = useState(initialResumeRaw);
@@ -1354,12 +1355,20 @@
         setCloningStateId('');
       };
 
+      const providerLabels = { anthropic: 'Anthropic', openai: 'OpenAI', ollama: 'Ollama' };
+      const apiLabel = (activeProvider && activeModel)
+        ? `${providerLabels[activeProvider] || activeProvider} - ${activeModel}`
+        : '';
+
       return (
         <div className="fade-in w-full flex flex-col flex-1 min-h-0 pr-8">
           {/* Header row */}
           <div className="flex items-start justify-between mb-4 shrink-0">
             <div>
-              <h2 className="text-2xl font-bold mb-1">Setup</h2>
+              <div className="flex items-baseline gap-3 mb-1">
+                <h2 className="text-2xl font-bold">Setup</h2>
+                {apiLabel && <span className="text-sm font-medium text-emerald-300">{apiLabel}</span>}
+              </div>
               <p className="text-slate-400">Paste your job posting to begin the interview preparation workflow.</p>
             </div>
             <button
@@ -1520,6 +1529,13 @@
       const total = validCosts.reduce((sum, cost) => sum + cost, 0);
       const rounded = Math.round(total * 100) / 100;
       return `Cost: $${rounded.toFixed(2)} · Queries: ${validCosts.length}`;
+    }
+
+    function formatBytes(bytes) {
+      if (typeof bytes !== 'number' || bytes < 0) return '';
+      if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+      if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${bytes} B`;
     }
 
     function formatQueryDuration(durationMs) {
@@ -2126,8 +2142,145 @@
       );
     }
 
+    // ── Queue Dropdown ───────────────────────────────────────────────────────
+    const QUEUE_SECTIONS = [
+      { key: 'research',       label: 'Research' },
+      { key: 'interview_intel', label: 'Interview Intel' },
+      { key: 'jd_decode',      label: 'Job Decoder' },
+      { key: 'resume_tailor',  label: 'Resume Tailor' },
+      { key: 'stories',        label: 'Story Bank' },
+      { key: 'pitch',          label: 'Pitch' },
+      { key: 'concerns',       label: 'Concerns' },
+      { key: 'salary',         label: 'Salary' },
+    ];
+
+    function QueueDropdown({ stateId, queueStatus, onQueueAction }) {
+      const [open, setOpen] = useState(false);
+      const [selections, setSelections] = useState(new Set());
+      const ref = useRef(null);
+
+      const runningKey = queueStatus?.running?.section_key;
+      const queuedKeys = new Set((queueStatus?.queued || []).map(item => item.section_key));
+
+      const openDropdown = () => {
+        const initial = new Set();
+        if (runningKey) initial.add(runningKey);
+        queuedKeys.forEach(k => initial.add(k));
+        setSelections(initial);
+        setOpen(true);
+      };
+
+      useEffect(() => {
+        if (!open) return;
+        const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+      }, [open]);
+
+      const nonRunning = QUEUE_SECTIONS.filter(s => s.key !== runningKey);
+      const allSelected = nonRunning.length > 0 && nonRunning.every(s => selections.has(s.key));
+
+      const toggle = (key) => {
+        if (key === runningKey) return;
+        setSelections(prev => {
+          const next = new Set(prev);
+          if (next.has(key)) next.delete(key); else next.add(key);
+          return next;
+        });
+      };
+
+      const handleSelectOrClearAll = async () => {
+        if (allSelected) {
+          const cleared = new Set();
+          if (runningKey) cleared.add(runningKey);
+          setSelections(cleared);
+          for (const s of QUEUE_SECTIONS) {
+            if (s.key === runningKey) continue;
+            if (queuedKeys.has(s.key)) {
+              await onQueueAction({ sectionKey: s.key, title: s.label });
+            }
+          }
+        } else {
+          setSelections(new Set(QUEUE_SECTIONS.map(s => s.key)));
+        }
+      };
+
+      const handleApply = async () => {
+        for (const s of QUEUE_SECTIONS) {
+          if (s.key === runningKey) continue;
+          const isQueued = queuedKeys.has(s.key);
+          const isSelected = selections.has(s.key);
+          if (isSelected && !isQueued) {
+            await onQueueAction({ sectionKey: s.key, title: s.label });
+          } else if (!isSelected && isQueued) {
+            await onQueueAction({ sectionKey: s.key, title: s.label });
+          }
+        }
+        setOpen(false);
+      };
+
+      return (
+        <div className="relative" ref={ref}>
+          <button
+            type="button"
+            onClick={open ? () => setOpen(false) : openDropdown}
+            disabled={!stateId}
+            className="flex items-center justify-center px-2.5 h-full rounded-r-xl rounded-l-none text-white bg-purple-600 hover:bg-purple-500 border-l border-white/20 disabled:opacity-50 transition"
+            aria-label="Manage AI queue"
+            title="Manage AI queue"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <circle cx="7" cy="2" r="1.5"/>
+              <circle cx="7" cy="7" r="1.5"/>
+              <circle cx="7" cy="12" r="1.5"/>
+            </svg>
+          </button>
+          {open && (
+            <div className="absolute right-0 top-full mt-1 w-52 bg-slate-900 border border-slate-700 rounded-xl shadow-xl z-50 py-2">
+              {QUEUE_SECTIONS.map(s => {
+                const isRunning = s.key === runningKey;
+                const checked = selections.has(s.key);
+                return (
+                  <label
+                    key={s.key}
+                    className={`flex items-center gap-3 px-4 py-2 select-none ${isRunning ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-slate-800 transition'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={isRunning}
+                      onChange={() => toggle(s.key)}
+                      className="w-4 h-4 rounded accent-indigo-500 shrink-0"
+                    />
+                    <span className="text-sm text-slate-200 flex-1">{s.label}</span>
+                    {isRunning && <span className="text-xs text-amber-400">running</span>}
+                  </label>
+                );
+              })}
+              <div className="border-t border-slate-700 mt-2 pt-2 px-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleSelectOrClearAll}
+                  className="flex-1 py-1.5 text-sm font-medium text-slate-300 border border-slate-600 rounded-lg hover:bg-slate-800 transition"
+                >
+                  {allSelected ? 'Clear all' : 'Select all'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApply}
+                  className="flex-1 py-1.5 text-sm font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded-lg transition"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ── Agent Step (Generic for research, jd_decode, salary, concerns, pitch) ──
-    function AgentStep({ stateId, stepId, title, description, endpoint, resultKey, cached, queryMeta = {}, onComplete, onContinue, usesWebSearch = false, queueItem = null, failedQueueItem = null, hasRunningQueueItem = false, onQueueAction }) {
+    function AgentStep({ stateId, stepId, title, description, endpoint, resultKey, cached, queryMeta = {}, onComplete, onContinue, usesWebSearch = false, queueItem = null, failedQueueItem = null, hasRunningQueueItem = false, onQueueAction, queueStatus = null }) {
       const [result, setResult] = useState(cached || '');
       const [costUsd, setCostUsd] = useState(queryMeta.costUsd || 0);
       const [modelName, setModelName] = useState(queryMeta.modelName || '');
@@ -2283,13 +2436,16 @@
               <p className="text-slate-400 mt-1">{description}</p>
             </div>
             <div className="flex gap-2 ml-6 shrink-0">
-              <button
-                onClick={run}
-                disabled={queueItem?.status === 'canceling'}
-                className="px-6 py-2.5 rounded-xl font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 transition whitespace-nowrap"
-              >
-                {buttonText}
-              </button>
+              <div className="flex">
+                <button
+                  onClick={run}
+                  disabled={queueItem?.status === 'canceling'}
+                  className="px-6 py-2.5 rounded-l-xl rounded-r-none font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 transition whitespace-nowrap"
+                >
+                  {buttonText}
+                </button>
+                <QueueDropdown stateId={stateId} queueStatus={queueStatus} onQueueAction={onQueueAction} />
+              </div>
               {onContinue && (
                 <button onClick={onContinue} className="px-6 py-2.5 rounded-xl font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 transition whitespace-nowrap">
                   Continue →
@@ -2319,7 +2475,7 @@
     }
 
     // ── Story Bank Step ─────────────────────────────────────────────────────
-    function StoryBankStep({ stateId, queryMeta = {}, onComplete, onContinue, queueItem = null, failedQueueItem = null, hasRunningQueueItem = false, onQueueAction }) {
+    function StoryBankStep({ stateId, queryMeta = {}, onComplete, onContinue, queueItem = null, failedQueueItem = null, hasRunningQueueItem = false, onQueueAction, queueStatus = null }) {
       const [stories, setStories] = useState([]);
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState('');
@@ -2467,13 +2623,16 @@
               <p className="text-slate-400 mt-1">Your STAR stories for interview answers — mined from your resume</p>
             </div>
             <div className="flex gap-2">
-              <button
-                onClick={mine}
-                disabled={queueItem?.status === 'canceling'}
-                className="px-6 py-2.5 rounded-xl font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 transition"
-              >
-                {mineButtonText}
-              </button>
+              <div className="flex">
+                <button
+                  onClick={mine}
+                  disabled={queueItem?.status === 'canceling'}
+                  className="px-6 py-2.5 rounded-l-xl rounded-r-none font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 transition"
+                >
+                  {mineButtonText}
+                </button>
+                <QueueDropdown stateId={stateId} queueStatus={queueStatus} onQueueAction={onQueueAction} />
+              </div>
               {onContinue && (
                 <button onClick={onContinue} className="px-6 py-2.5 rounded-xl font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 transition whitespace-nowrap">
                   Continue →
@@ -2731,7 +2890,7 @@
     }
 
     // ── Resume Tailor Step ───────────────────────────────────────────────
-    function ResumeTailorStep({ stateId, cached, queryMeta = {}, currentResume, currentResumeTagged, companyName, onComplete, onContinue, queueItem = null, failedQueueItem = null, hasRunningQueueItem = false, onQueueAction }) {
+    function ResumeTailorStep({ stateId, cached, queryMeta = {}, currentResume, currentResumeTagged, companyName, onComplete, onContinue, queueItem = null, failedQueueItem = null, hasRunningQueueItem = false, onQueueAction, queueStatus = null }) {
       const [analysis, setAnalysis] = useState(cached || '');
       const [costUsd, setCostUsd] = useState(queryMeta.costUsd || 0);
       const [modelName, setModelName] = useState(queryMeta.modelName || '');
@@ -3060,13 +3219,16 @@
               <p className="text-slate-400 mt-1">AI reviews your resume against the JD and suggests targeted improvements.</p>
             </div>
             <div className="flex gap-2">
-              <button
-                onClick={runReview}
-                disabled={queueItem?.status === 'canceling'}
-                className="px-5 py-2.5 rounded-xl font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 transition whitespace-nowrap"
-              >
-                {reviewButtonText}
-              </button>
+              <div className="flex">
+                <button
+                  onClick={runReview}
+                  disabled={queueItem?.status === 'canceling'}
+                  className="px-5 py-2.5 rounded-l-xl rounded-r-none font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 transition whitespace-nowrap"
+                >
+                  {reviewButtonText}
+                </button>
+                <QueueDropdown stateId={stateId} queueStatus={queueStatus} onQueueAction={onQueueAction} />
+              </div>
               <button
                 onClick={updateFromAnalysis}
                 disabled={!hasAiDraft}
@@ -3889,6 +4051,8 @@
       const [newActionError, setNewActionError] = useState('');
       const [queueStatus, setQueueStatus] = useState({ running: null, queued: [], failed: [] });
       const [appVersion, setAppVersion] = useState('');
+      const [activeProvider, setActiveProvider] = useState('');
+      const [activeModel, setActiveModel] = useState('');
       const totalQueryDetails = [
         {
           label: 'Company Research',
@@ -3996,6 +4160,12 @@
           if (cfg.version) setAppVersion(cfg.version);
           const configured = cfg.anthropic_api_key_set || !!cfg.openai_api_key || !!(cfg.ollama_base_url && cfg.ollama_model);
           setNeedsConfig(!configured);
+          const provider = cfg.active_provider || '';
+          setActiveProvider(provider);
+          if (provider === 'anthropic') setActiveModel(cfg.anthropic_model || '');
+          else if (provider === 'openai') setActiveModel(cfg.openai_model || '');
+          else if (provider === 'ollama') setActiveModel(cfg.ollama_model || '');
+          else setActiveModel('');
           if (!configured) {
             setCurrentStep('config');
           } else {
@@ -4172,6 +4342,8 @@
             initialCompanyName={stateData?.company_name}
             initialPosition={stateData?.position}
             onTechChange={setIsTech}
+            activeProvider={activeProvider}
+            activeModel={activeModel}
           />;
         }
         const stepIds = STEPS.map(s => s.id);
@@ -4182,23 +4354,23 @@
           case 'resume':
             return <ResumeStep key={`resume-${stateId}`} stateId={stateId} currentResume={stateData?.resume} currentResumeRaw={stateData?.resume_raw} currentResumeTagged={stateData?.resume_tagged} savedResumes={stateData?.resumes || []} onResumeUpdate={() => refreshState(stateId)} onContinue={onContinue} />;
           case 'research':
-            return <AgentStep key={`research-${stateId}`} stateId={stateId} stepId="research" title="Company Research" description="AI agent deep-dives into the company: business model, leadership, culture, tech stack, challenges, and reputation." endpoint="research" resultKey="report" cached={stateData?.research?.raw_report} queryMeta={{ costUsd: stateData?.research?.query_cost_usd, modelName: stateData?.research?.query_model_name, durationMs: stateData?.research?.query_duration_ms, ranAt: stateData?.research?.query_ran_at || stateData?.research?.researched_at }} onComplete={refreshState} onContinue={onContinue} usesWebSearch={true} queueItem={queueItemFor('research')} failedQueueItem={failedQueueItemFor('research')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} />;
+            return <AgentStep key={`research-${stateId}`} stateId={stateId} stepId="research" title="Company Research" description="AI agent deep-dives into the company: business model, leadership, culture, tech stack, challenges, and reputation." endpoint="research" resultKey="report" cached={stateData?.research?.raw_report} queryMeta={{ costUsd: stateData?.research?.query_cost_usd, modelName: stateData?.research?.query_model_name, durationMs: stateData?.research?.query_duration_ms, ranAt: stateData?.research?.query_ran_at || stateData?.research?.researched_at }} onComplete={refreshState} onContinue={onContinue} usesWebSearch={true} queueItem={queueItemFor('research')} failedQueueItem={failedQueueItemFor('research')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} queueStatus={queueStatus} />;
           case 'interview_intel':
-            return <AgentStep key={`interview_intel-${stateId}`} stateId={stateId} stepId="interview_intel" title="Interview Intel" description="Mines Glassdoor, Blind, Reddit, and Levels.fyi for real interview questions, hiring patterns, and candidate experiences at this company." endpoint="interview-intel" resultKey="report" cached={stateData?.interview_intel?.raw_report} queryMeta={{ costUsd: stateData?.interview_intel?.query_cost_usd, modelName: stateData?.interview_intel?.query_model_name, durationMs: stateData?.interview_intel?.query_duration_ms, ranAt: stateData?.interview_intel?.query_ran_at }} onComplete={refreshState} onContinue={onContinue} usesWebSearch={true} queueItem={queueItemFor('interview_intel')} failedQueueItem={failedQueueItemFor('interview_intel')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} />;
+            return <AgentStep key={`interview_intel-${stateId}`} stateId={stateId} stepId="interview_intel" title="Interview Intel" description="Mines Glassdoor, Blind, Reddit, and Levels.fyi for real interview questions, hiring patterns, and candidate experiences at this company." endpoint="interview-intel" resultKey="report" cached={stateData?.interview_intel?.raw_report} queryMeta={{ costUsd: stateData?.interview_intel?.query_cost_usd, modelName: stateData?.interview_intel?.query_model_name, durationMs: stateData?.interview_intel?.query_duration_ms, ranAt: stateData?.interview_intel?.query_ran_at }} onComplete={refreshState} onContinue={onContinue} usesWebSearch={true} queueItem={queueItemFor('interview_intel')} failedQueueItem={failedQueueItemFor('interview_intel')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} queueStatus={queueStatus} />;
           case 'jd_decode':
-            return <AgentStep key={`jd_decode-${stateId}`} stateId={stateId} stepId="jd_decode" title="Job Decoder" description="Analyzes the job description through six lenses: repetition, emphasis, requirements, verb choices, hidden signals, and what's missing." endpoint="decode-jd" resultKey="analysis" cached={stateData?.jd_analysis?.raw_analysis} queryMeta={{ costUsd: stateData?.jd_analysis?.query_cost_usd, modelName: stateData?.jd_analysis?.query_model_name, durationMs: stateData?.jd_analysis?.query_duration_ms, ranAt: stateData?.jd_analysis?.query_ran_at }} onComplete={refreshState} onContinue={onContinue} queueItem={queueItemFor('jd_decode')} failedQueueItem={failedQueueItemFor('jd_decode')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} />;
+            return <AgentStep key={`jd_decode-${stateId}`} stateId={stateId} stepId="jd_decode" title="Job Decoder" description="Analyzes the job description through six lenses: repetition, emphasis, requirements, verb choices, hidden signals, and what's missing." endpoint="decode-jd" resultKey="analysis" cached={stateData?.jd_analysis?.raw_analysis} queryMeta={{ costUsd: stateData?.jd_analysis?.query_cost_usd, modelName: stateData?.jd_analysis?.query_model_name, durationMs: stateData?.jd_analysis?.query_duration_ms, ranAt: stateData?.jd_analysis?.query_ran_at }} onComplete={refreshState} onContinue={onContinue} queueItem={queueItemFor('jd_decode')} failedQueueItem={failedQueueItemFor('jd_decode')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} queueStatus={queueStatus} />;
           case 'resume_tailor':
-            return <ResumeTailorStep key={`resume_tailor-${stateId}`} stateId={stateId} cached={stateData?.resume_review} queryMeta={{ costUsd: stateData?.resume_review_cost_usd, modelName: stateData?.resume_review_model_name, durationMs: stateData?.resume_review_duration_ms, ranAt: stateData?.resume_review_ran_at }} currentResume={stateData?.resume} currentResumeTagged={stateData?.resume_tagged} companyName={stateData?.company_name} onComplete={refreshState} onContinue={onContinue} queueItem={queueItemFor('resume_tailor')} failedQueueItem={failedQueueItemFor('resume_tailor')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} />;
+            return <ResumeTailorStep key={`resume_tailor-${stateId}`} stateId={stateId} cached={stateData?.resume_review} queryMeta={{ costUsd: stateData?.resume_review_cost_usd, modelName: stateData?.resume_review_model_name, durationMs: stateData?.resume_review_duration_ms, ranAt: stateData?.resume_review_ran_at }} currentResume={stateData?.resume} currentResumeTagged={stateData?.resume_tagged} companyName={stateData?.company_name} onComplete={refreshState} onContinue={onContinue} queueItem={queueItemFor('resume_tailor')} failedQueueItem={failedQueueItemFor('resume_tailor')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} queueStatus={queueStatus} />;
           case 'stories':
-            return <StoryBankStep stateId={stateId} queryMeta={{ costUsd: stateData?.stories_cost_usd, modelName: stateData?.stories_model_name, durationMs: stateData?.stories_duration_ms, ranAt: stateData?.stories_ran_at }} onComplete={refreshState} onContinue={onContinue} queueItem={queueItemFor('stories')} failedQueueItem={failedQueueItemFor('stories')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} />;
+            return <StoryBankStep stateId={stateId} queryMeta={{ costUsd: stateData?.stories_cost_usd, modelName: stateData?.stories_model_name, durationMs: stateData?.stories_duration_ms, ranAt: stateData?.stories_ran_at }} onComplete={refreshState} onContinue={onContinue} queueItem={queueItemFor('stories')} failedQueueItem={failedQueueItemFor('stories')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} queueStatus={queueStatus} />;
           case 'pitch':
-            return <AgentStep key={`pitch-${stateId}`} stateId={stateId} stepId="pitch" title="Pitch Builder" description="Builds your positioning statement and pitch variants: 10s elevator, 30s networking, 60s recruiter, and 90s interview." endpoint="pitch" resultKey="pitches" cached={stateData?.pitch?.value_proposition} queryMeta={{ costUsd: stateData?.pitch?.query_cost_usd, modelName: stateData?.pitch?.query_model_name, durationMs: stateData?.pitch?.query_duration_ms, ranAt: stateData?.pitch?.query_ran_at }} onComplete={refreshState} onContinue={onContinue} queueItem={queueItemFor('pitch')} failedQueueItem={failedQueueItemFor('pitch')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} />;
+            return <AgentStep key={`pitch-${stateId}`} stateId={stateId} stepId="pitch" title="Pitch Builder" description="Builds your positioning statement and pitch variants: 10s elevator, 30s networking, 60s recruiter, and 90s interview." endpoint="pitch" resultKey="pitches" cached={stateData?.pitch?.value_proposition} queryMeta={{ costUsd: stateData?.pitch?.query_cost_usd, modelName: stateData?.pitch?.query_model_name, durationMs: stateData?.pitch?.query_duration_ms, ranAt: stateData?.pitch?.query_ran_at }} onComplete={refreshState} onContinue={onContinue} queueItem={queueItemFor('pitch')} failedQueueItem={failedQueueItemFor('pitch')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} queueStatus={queueStatus} />;
           case 'concerns':
-            return <AgentStep key={`concerns-${stateId}`} stateId={stateId} stepId="concerns" title="Interviewer Concerns" description="Anticipates what the interviewer might worry about and prepares counter-evidence and reframe scripts." endpoint="concerns" resultKey="analysis" cached={stateData?.concerns_analysis} queryMeta={{ costUsd: stateData?.concerns_cost_usd, modelName: stateData?.concerns_model_name, durationMs: stateData?.concerns_duration_ms, ranAt: stateData?.concerns_ran_at }} onComplete={refreshState} onContinue={onContinue} queueItem={queueItemFor('concerns')} failedQueueItem={failedQueueItemFor('concerns')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} />;
+            return <AgentStep key={`concerns-${stateId}`} stateId={stateId} stepId="concerns" title="Interviewer Concerns" description="Anticipates what the interviewer might worry about and prepares counter-evidence and reframe scripts." endpoint="concerns" resultKey="analysis" cached={stateData?.concerns_analysis} queryMeta={{ costUsd: stateData?.concerns_cost_usd, modelName: stateData?.concerns_model_name, durationMs: stateData?.concerns_duration_ms, ranAt: stateData?.concerns_ran_at }} onComplete={refreshState} onContinue={onContinue} queueItem={queueItemFor('concerns')} failedQueueItem={failedQueueItemFor('concerns')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} queueStatus={queueStatus} />;
           case 'mock_interview':
             return <MockInterviewStep stateId={stateId} onContinue={onContinue} />;
           case 'salary':
-            return <AgentStep key={`salary-${stateId}`} stateId={stateId} stepId="salary" title="Salary Coaching" description="Compensation negotiation coaching with market data, range construction, and exact scripts for every stage." endpoint="salary" resultKey="analysis" cached={stateData?.comp_data?.raw_analysis} queryMeta={{ costUsd: stateData?.comp_data?.query_cost_usd, modelName: stateData?.comp_data?.query_model_name, durationMs: stateData?.comp_data?.query_duration_ms, ranAt: stateData?.comp_data?.query_ran_at }} onComplete={refreshState} onContinue={onContinue} usesWebSearch={true} queueItem={queueItemFor('salary')} failedQueueItem={failedQueueItemFor('salary')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} />;
+            return <AgentStep key={`salary-${stateId}`} stateId={stateId} stepId="salary" title="Salary Coaching" description="Compensation negotiation coaching with market data, range construction, and exact scripts for every stage." endpoint="salary" resultKey="analysis" cached={stateData?.comp_data?.raw_analysis} queryMeta={{ costUsd: stateData?.comp_data?.query_cost_usd, modelName: stateData?.comp_data?.query_model_name, durationMs: stateData?.comp_data?.query_duration_ms, ranAt: stateData?.comp_data?.query_ran_at }} onComplete={refreshState} onContinue={onContinue} usesWebSearch={true} queueItem={queueItemFor('salary')} failedQueueItem={failedQueueItemFor('salary')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} queueStatus={queueStatus} />;
           case 'debrief':
             return <DebriefStep stateId={stateId} totalQueryCostLabel={totalQueryCostLabel} totalQueryDetails={totalQueryDetails} totalQueryTooltip={totalQueryTooltip} />;
           case 'config':

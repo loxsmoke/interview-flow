@@ -300,8 +300,12 @@ def agent_failure_http_error(exc: Exception, fallback: str) -> HTTPException:
         if isinstance(exc, openai.RateLimitError):
             detail = getattr(exc, "message", None) or message
             return HTTPException(500, f"OpenAI rate limit exceeded. {detail}")
+        if isinstance(exc, openai.APIConnectionError):
+            return HTTPException(500, f"OpenAI connection error — the request could not reach the API. {fallback}")
     except ImportError:
         pass
+    if "response.completed" in message:
+        return HTTPException(500, f"OpenAI stream was interrupted before completing. {fallback}")
     return HTTPException(500, fallback)
 
 
@@ -529,9 +533,18 @@ async def get_config():
         db.DATA_FILE_NAME: "sessions",
         db.CUSTOM_ACTIONS_FILE_NAME: "custom actions",
     }
+    def _file_size(p):
+        try:
+            return p.stat().st_size
+        except Exception:
+            return None
+
     try:
-        all_json = sorted(f.name for f in db.DATA_DIR.glob("*.json"))
-        data_files = [{"name": n, "note": _KNOWN_FILE_NOTES.get(n)} for n in all_json[:5]]
+        all_json = sorted(db.DATA_DIR.glob("*.json"), key=lambda f: f.name)
+        data_files = [
+            {"name": f.name, "note": _KNOWN_FILE_NOTES.get(f.name), "size_bytes": _file_size(f)}
+            for f in all_json[:5]
+        ]
         data_files_extra = max(0, len(all_json) - 5)
     except Exception:
         data_files, data_files_extra = [], 0

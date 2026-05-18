@@ -13,3 +13,4 @@ playwright-report/
 tests/.tmp/
 *.log
 .claude/
+export/

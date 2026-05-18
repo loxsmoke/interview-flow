@@ -189,7 +189,11 @@ async def _iter_openai_chat(
             if _attempt == _MAX_ATTEMPTS - 1:
                 raise
             _suggested = _parse_retry_after(str(_exc))
-            _wait = max(_suggested or 60.0, 60.0) if received_any else (_suggested or 10.0)
+            if received_any:
+                _wait = max(_suggested or 60.0, 60.0)
+            else:
+                _floor = min(15.0 * (2 ** _attempt), 60.0)
+                _wait = max(_suggested or _floor, _floor)
             print(f"[OpenAI] rate limit hit ({'mid' if received_any else 'pre'}-stream, attempt {_attempt + 1}/{_MAX_ATTEMPTS - 1}), retrying after {_wait:.1f}s ...", flush=True)
             async for hb in _wait_with_heartbeats(_wait):
                 yield hb
@@ -306,8 +310,27 @@ async def _iter_openai_responses(
             if _attempt == _MAX_ATTEMPTS - 1:
                 raise
             _suggested = _parse_retry_after(str(_exc))
-            _wait = max(_suggested or 60.0, 60.0) if received_any else (_suggested or 10.0)
+            if received_any:
+                _wait = max(_suggested or 60.0, 60.0)
+            else:
+                # Exponential backoff: 15s, 30s, 60s, 60s — gives the org-level token window
+                # time to clear even when concurrent requests are consuming tokens.
+                _floor = min(15.0 * (2 ** _attempt), 60.0)
+                _wait = max(_suggested or _floor, _floor)
             print(f"[OpenAI] rate limit hit ({'mid' if received_any else 'pre'}-stream, attempt {_attempt + 1}/{_MAX_ATTEMPTS - 1}), retrying after {_wait:.1f}s ...", flush=True)
+            async for hb in _wait_with_heartbeats(_wait):
+                yield hb
+            if received_any:
+                yield {"type": "rate_limit_reset"}
+        except (openai.APIConnectionError, RuntimeError) as _exc:
+            # Transient failures: network drops or stream closed before response.completed event
+            _msg = str(_exc)
+            if isinstance(_exc, RuntimeError) and "response.completed" not in _msg:
+                raise  # not a recoverable stream error
+            if _attempt == _MAX_ATTEMPTS - 1:
+                raise
+            _wait = min(5.0 * (2 ** _attempt), 60.0)  # exponential backoff capped at 60s
+            print(f"[OpenAI] transient stream error ({'mid' if received_any else 'pre'}-stream, attempt {_attempt + 1}/{_MAX_ATTEMPTS - 1}), retrying after {_wait:.1f}s: {_exc}", flush=True)
             async for hb in _wait_with_heartbeats(_wait):
                 yield hb
             if received_any:
