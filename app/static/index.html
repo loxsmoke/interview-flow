@@ -535,6 +535,11 @@
       const [anthropicModel, setAnthropicModel] = useState('claude-sonnet-4-6');
       const [openaiKey, setOpenaiKey] = useState('');
       const [openaiModel, setOpenaiModel] = useState('gpt-4o');
+      const [geminiKey, setGeminiKey] = useState('');
+      const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
+      const [showGeminiKey, setShowGeminiKey] = useState(false);
+      const [geminiModels, setGeminiModels] = useState(null);
+      const [geminiModelsLoading, setGeminiModelsLoading] = useState(false);
       const [ollamaBaseUrl, setOllamaBaseUrl] = useState('http://localhost:11434');
       const [ollamaModel, setOllamaModel] = useState('');
       const [ollamaNumCtx, setOllamaNumCtx] = useState('');
@@ -593,6 +598,8 @@
           setAnthropicModel(cfg.anthropic_model || 'claude-sonnet-4-6');
           setOpenaiKey(cfg.openai_api_key || '');
           setOpenaiModel(cfg.openai_model || 'gpt-4o');
+          setGeminiKey(cfg.gemini_api_key || '');
+          setGeminiModel(cfg.gemini_model || 'gemini-2.5-flash');
           setOllamaBaseUrl(cfg.ollama_base_url || 'http://localhost:11434');
           setOllamaModel(cfg.ollama_model || '');
           setOllamaNumCtx(cfg.ollama_num_ctx || '');
@@ -614,6 +621,7 @@
           const body = { active_provider: provider };
           if (provider === 'anthropic') { body.anthropic_api_key = anthropicKey; body.anthropic_model = anthropicModel; }
           if (provider === 'openai') { body.openai_api_key = openaiKey; body.openai_model = openaiModel; }
+          if (provider === 'gemini') { body.gemini_api_key = geminiKey; body.gemini_model = geminiModel; }
           if (provider === 'ollama') { body.ollama_base_url = ollamaBaseUrl; body.ollama_model = ollamaModel; body.ollama_num_ctx = ollamaNumCtx; }
           await api.post('/config', body);
           setSaveMsg({ text: 'Saved', ok: true });
@@ -685,9 +693,10 @@
       );
 
       const providers = [
-        { id: 'anthropic', label: 'Anthropic', desc: 'Claude models' },
-        { id: 'openai',    label: 'OpenAI',    desc: 'GPT models'   },
-        { id: 'ollama',    label: 'Local Ollama', desc: 'Run models locally' },
+        { id: 'anthropic', label: 'Anthropic',     desc: 'Claude models'      },
+        { id: 'openai',    label: 'OpenAI',         desc: 'GPT models'         },
+        { id: 'gemini',    label: 'Google Gemini',  desc: 'Gemini models'      },
+        { id: 'ollama',    label: 'Local Ollama',   desc: 'Run models locally' },
       ];
 
       return (
@@ -710,6 +719,7 @@
                 const isConfigured = p.id === 'anthropic'
                   ? config?.anthropic_api_key_set
                   : p.id === 'openai' ? !!config?.openai_api_key
+                  : p.id === 'gemini' ? !!config?.gemini_api_key_set
                   : p.id === 'ollama' ? !!(config?.ollama_base_url && config?.ollama_model)
                   : false;
                 const selectedModelEntry = p.id === 'ollama' && ollamaModels && ollamaModel
@@ -801,6 +811,71 @@
                                 {savingProvider === 'openai' ? 'Saving…' : 'Save'}
                               </button>
                             </div>
+                          </div>
+                        </>)}
+                        {p.id === 'gemini' && (<>
+                          <ApiKeyField
+                            value={geminiKey}
+                            onChange={e => { setGeminiKey(e); setGeminiModels(null); }}
+                            show={showGeminiKey}
+                            onToggleShow={() => setShowGeminiKey(v => !v)}
+                            placeholder="AIza…"
+                            keyUrl="https://aistudio.google.com/app/apikey"
+                          />
+                          <div className="mt-4">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <label className="text-xs font-medium text-slate-400">Model</label>
+                              <button
+                                onClick={async () => {
+                                  setGeminiModelsLoading(true);
+                                  try {
+                                    await api.post('/config', { gemini_api_key: geminiKey });
+                                    const data = await api.get('/gemini/models');
+                                    setGeminiModels(data.available ? data.models : []);
+                                  } catch { setGeminiModels([]); }
+                                  setGeminiModelsLoading(false);
+                                }}
+                                disabled={geminiModelsLoading}
+                                className="text-xs text-indigo-400 hover:text-indigo-300 disabled:opacity-50 transition-colors"
+                              >
+                                {geminiModelsLoading ? 'Fetching…' : 'Fetch available models'}
+                              </button>
+                            </div>
+                            {geminiModels && geminiModels.length > 0 ? (
+                              <select
+                                value={geminiModels.some(m => m.id === geminiModel) ? geminiModel : ''}
+                                onChange={e => setGeminiModel(e.target.value)}
+                                className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                              >
+                                <option value="" disabled>Select a model</option>
+                                {geminiModels.map(m => (
+                                  <option key={m.id} value={m.id}>{m.display_name} ({m.id})</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                value={geminiModel}
+                                onChange={e => setGeminiModel(e.target.value)}
+                                placeholder="gemini-2.5-flash"
+                                className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
+                              />
+                            )}
+                            {geminiModels !== null && geminiModels.length === 0 && (
+                              <p className="text-xs text-amber-500 mt-1">No models found — check your API key.</p>
+                            )}
+                            {geminiModels === null && (
+                              <p className="text-xs text-slate-600 mt-1">Type a model ID or click "Fetch available models" to see what's available.</p>
+                            )}
+                          </div>
+                          <div className="flex justify-end pt-3">
+                            <button
+                              onClick={() => saveKey('gemini')}
+                              disabled={!!savingProvider}
+                              className="px-4 py-2 text-sm rounded-lg font-medium bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition-colors"
+                            >
+                              {savingProvider === 'gemini' ? 'Saving…' : 'Save'}
+                            </button>
                           </div>
                         </>)}
                         {p.id === 'ollama' && (<>
@@ -1355,7 +1430,7 @@
         setCloningStateId('');
       };
 
-      const providerLabels = { anthropic: 'Anthropic', openai: 'OpenAI', ollama: 'Ollama' };
+      const providerLabels = { anthropic: 'Anthropic', openai: 'OpenAI', gemini: 'Google Gemini', ollama: 'Ollama' };
       const apiLabel = (activeProvider && activeModel)
         ? `${providerLabels[activeProvider] || activeProvider} - ${activeModel}`
         : '';
@@ -2206,6 +2281,7 @@
       };
 
       const handleApply = async () => {
+        setOpen(false);
         for (const s of QUEUE_SECTIONS) {
           if (s.key === runningKey) continue;
           const isQueued = queuedKeys.has(s.key);
@@ -2216,7 +2292,6 @@
             await onQueueAction({ sectionKey: s.key, title: s.label });
           }
         }
-        setOpen(false);
       };
 
       return (
@@ -4158,12 +4233,13 @@
       const checkConfig = useCallback(() => {
         api.get('/config').then(cfg => {
           if (cfg.version) setAppVersion(cfg.version);
-          const configured = cfg.anthropic_api_key_set || !!cfg.openai_api_key || !!(cfg.ollama_base_url && cfg.ollama_model);
+          const configured = cfg.anthropic_api_key_set || !!cfg.openai_api_key || !!cfg.gemini_api_key_set || !!(cfg.ollama_base_url && cfg.ollama_model);
           setNeedsConfig(!configured);
           const provider = cfg.active_provider || '';
           setActiveProvider(provider);
           if (provider === 'anthropic') setActiveModel(cfg.anthropic_model || '');
           else if (provider === 'openai') setActiveModel(cfg.openai_model || '');
+          else if (provider === 'gemini') setActiveModel(cfg.gemini_model || '');
           else if (provider === 'ollama') setActiveModel(cfg.ollama_model || '');
           else setActiveModel('');
           if (!configured) {

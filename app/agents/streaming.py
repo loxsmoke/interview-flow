@@ -89,9 +89,9 @@ def get_temperature(section: str) -> float:
 # ── Provider selection ───────────────────────────────────────────────────────
 
 def get_active_provider() -> str:
-    """Return 'anthropic', 'openai', or 'ollama' based on env configuration."""
+    """Return 'anthropic', 'openai', 'gemini', or 'ollama' based on env configuration."""
     explicit = os.environ.get("ACTIVE_PROVIDER", "").strip().lower()
-    if explicit in ("anthropic", "openai", "ollama"):
+    if explicit in ("anthropic", "openai", "gemini", "ollama"):
         return explicit
     if os.environ.get("OPENAI_API_KEY", "").strip():
         return "openai"
@@ -135,6 +135,23 @@ def _anthropic_cost(model: str, input_tokens: int, output_tokens: int) -> float:
 def _openai_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     inp, out = _OPENAI_PRICING.get(model, _OPENAI_DEFAULT_PRICING)
     return (prompt_tokens * inp + completion_tokens * out) / 1_000_000
+
+
+# ── Gemini cost calculation ───────────────────────────────────────────────────
+
+_GEMINI_PRICING: dict[str, tuple[float, float]] = {
+    "gemini-2.5-pro":   ( 1.25, 10.00),
+    "gemini-2.5-flash": ( 0.15,  0.60),
+    "gemini-2.0-flash": ( 0.10,  0.40),
+    "gemini-1.5-pro":   ( 1.25,  5.00),
+    "gemini-1.5-flash": ( 0.075, 0.30),
+}
+_GEMINI_DEFAULT_PRICING = (1.25, 5.00)
+
+
+def _gemini_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    inp, out = _GEMINI_PRICING.get(model, _GEMINI_DEFAULT_PRICING)
+    return (input_tokens * inp + output_tokens * out) / 1_000_000
 
 
 # ── OpenAI: chat completions (no web search) ─────────────────────────────────
@@ -826,6 +843,105 @@ async def _iter_anthropic_web(
                 yield {"type": "rate_limit_reset"}
 
 
+# ── Google Gemini: direct GenerateContent (no web search) ────────────────────
+
+async def _iter_gemini_chat(
+    prompt: str, system: str, model: str, temperature: "float | None" = _DEFAULT_TEMPERATURE
+) -> AsyncIterator[dict[str, Any]]:
+    import os
+    from google import genai
+    from google.genai import types as gtypes
+
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    client = genai.Client(api_key=api_key)
+
+    cfg_kwargs: dict = dict(max_output_tokens=16000)
+    if temperature is not None:
+        cfg_kwargs["temperature"] = temperature
+    if system:
+        cfg_kwargs["system_instruction"] = system
+    config = gtypes.GenerateContentConfig(**cfg_kwargs)
+
+    full_text: list[str] = []
+    input_tokens = 0
+    output_tokens = 0
+    t0 = time.monotonic()
+
+    async for chunk in await client.aio.models.generate_content_stream(
+        model=model, contents=prompt, config=config
+    ):
+        if chunk.text:
+            full_text.append(chunk.text)
+            yield {"type": "receive", "text": chunk.text}
+        um = getattr(chunk, "usage_metadata", None)
+        if um:
+            input_tokens = getattr(um, "prompt_token_count", 0) or 0
+            output_tokens = getattr(um, "candidates_token_count", 0) or 0
+
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    yield {
+        "type": "complete",
+        "text": "".join(full_text),
+        "cost_usd": _gemini_cost(model, input_tokens, output_tokens),
+        "model_name": model,
+        "duration_ms": duration_ms,
+        "tool_uses": [],
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+    }
+
+
+# ── Google Gemini: GenerateContent with Google Search grounding ───────────────
+
+async def _iter_gemini_web(
+    prompt: str, system: str, model: str, temperature: "float | None" = _DEFAULT_TEMPERATURE
+) -> AsyncIterator[dict[str, Any]]:
+    import os
+    from google import genai
+    from google.genai import types as gtypes
+
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    client = genai.Client(api_key=api_key)
+
+    cfg_kwargs: dict = dict(
+        max_output_tokens=16000,
+        tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
+    )
+    if temperature is not None:
+        cfg_kwargs["temperature"] = temperature
+    if system:
+        cfg_kwargs["system_instruction"] = system
+    config = gtypes.GenerateContentConfig(**cfg_kwargs)
+
+    full_text: list[str] = []
+    input_tokens = 0
+    output_tokens = 0
+    t0 = time.monotonic()
+
+    async for chunk in await client.aio.models.generate_content_stream(
+        model=model, contents=prompt, config=config
+    ):
+        if chunk.text:
+            full_text.append(chunk.text)
+            yield {"type": "receive", "text": chunk.text}
+        um = getattr(chunk, "usage_metadata", None)
+        if um:
+            input_tokens = getattr(um, "prompt_token_count", 0) or 0
+            output_tokens = getattr(um, "candidates_token_count", 0) or 0
+
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    yield {
+        "type": "complete",
+        "text": "".join(full_text),
+        "cost_usd": _gemini_cost(model, input_tokens, output_tokens),
+        "model_name": model,
+        "duration_ms": duration_ms,
+        "tool_uses": [],
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+    }
+
+
 # ── Langfuse generation tracking ─────────────────────────────────────────────
 
 def _lf_start(name: str, provider: str, model: str, system: str, prompt: str):
@@ -973,6 +1089,29 @@ async def iter_text_query(
         _stream_exc = None
         try:
             src = _iter_openai_responses(prompt, system_text, model) if uses_web else _iter_openai_chat(prompt, system_text, model, temperature)
+            async for event in src:
+                if event.get("type") == "complete":
+                    complete_event = event
+                yield event
+        except Exception as exc:
+            _stream_exc = exc
+            raise
+        finally:
+            if _stream_exc is not None:
+                _lf_fail(gen, _stream_exc)
+            elif complete_event is not None:
+                _lf_end(gen, complete_event)
+            else:
+                _lf_fail(gen, RuntimeError("stream closed before complete event"))
+        return
+
+    if provider == "gemini":
+        model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+        gen = _lf_start(trace_name, provider, model, system_text, prompt)
+        complete_event = None
+        _stream_exc = None
+        try:
+            src = _iter_gemini_web(prompt, system_text, model, temperature) if uses_web else _iter_gemini_chat(prompt, system_text, model, temperature)
             async for event in src:
                 if event.get("type") == "complete":
                     complete_event = event

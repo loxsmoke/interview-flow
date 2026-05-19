@@ -6,7 +6,7 @@
 
 Deep-dive company research agent that uses the active AI provider's web search capabilities to investigate a target company across five dimensions: company overview, leadership & culture, reputation & sentiment, products & technology, and challenges & opportunities.
 
-All AI calls go through the provider abstraction in `agents/streaming.py`, which selects between Claude (Anthropic), GPT (OpenAI), or Ollama based on the active configuration.
+All AI calls go through the provider abstraction in `agents/streaming.py`, which selects between Claude (Anthropic), GPT (OpenAI), Gemini (Google), or Ollama based on the active configuration.
 
 ## Functions
 

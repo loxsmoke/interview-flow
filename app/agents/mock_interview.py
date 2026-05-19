@@ -75,6 +75,8 @@ class MockInterviewSession:
             response = await self._openai_turn()
         elif self._provider == "ollama":
             response = await self._ollama_turn()
+        elif self._provider == "gemini":
+            response = await self._gemini_turn()
         else:
             response = await self._anthropic_turn()
         self._messages.append({"role": "assistant", "content": response})
@@ -95,6 +97,8 @@ class MockInterviewSession:
             response = await self._openai_turn()
         elif self._provider == "ollama":
             response = await self._ollama_turn()
+        elif self._provider == "gemini":
+            response = await self._gemini_turn()
         else:
             response = await self._anthropic_turn()
         self._messages.append({"role": "assistant", "content": response})
@@ -133,6 +137,29 @@ class MockInterviewSession:
         model = os.environ.get("OLLAMA_MODEL", "llama3.2").strip() or "llama3.2"
         base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").strip() or "http://localhost:11434"
         return await ollama_chat_once(self._messages, model, base_url, _TEMPERATURE)
+
+    async def _gemini_turn(self) -> str:
+        import os
+        from google import genai
+        from google.genai import types as gtypes
+        api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+        client = genai.Client(api_key=api_key)
+        system = next((m["content"] for m in self._messages if m["role"] == "system"), "")
+        messages = [m for m in self._messages if m["role"] != "system"]
+        contents = [
+            gtypes.Content(role="model" if m["role"] == "assistant" else "user",
+                           parts=[gtypes.Part(text=m["content"])])
+            for m in messages
+        ]
+        cfg_kwargs: dict = dict(max_output_tokens=8192, temperature=_TEMPERATURE)
+        if system:
+            cfg_kwargs["system_instruction"] = system
+        resp = await client.aio.models.generate_content(
+            model=model, contents=contents,
+            config=gtypes.GenerateContentConfig(**cfg_kwargs),
+        )
+        return resp.text or ""
 
     async def _anthropic_turn(self) -> str:
         import anthropic, os

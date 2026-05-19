@@ -12,3 +12,4 @@ python-dotenv>=1.0.0
 langfuse>=2.0.0
 pywebview>=4.3
 ddgs>=1.0
+google-genai>=1.0.0

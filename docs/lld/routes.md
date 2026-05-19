@@ -21,6 +21,7 @@ FastAPI application serving both the REST API and the static frontend. All API r
 | `GET` | `/api/config` | Get current AI provider configuration |
 | `POST` | `/api/config` | Update AI provider settings (provider, model, API keys) |
 | `GET` | `/api/ollama/models` | List locally available Ollama models |
+| `GET` | `/api/gemini/models` | List available Gemini models from Google API |
 
 ### Data Management
 

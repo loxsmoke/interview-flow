@@ -8,7 +8,7 @@ Based on the original version by [Prasad Apparaju](https://github.com/Prasad-App
 
 ![App screenshot](docs/images/app-screenshot.png)
 
-Built with Python/FastAPI, it runs locally on your machine. Your data stays on your computer. Choose from multiple AI backends — Claude (Anthropic), GPT (OpenAI), or a fully local model via Ollama — all configurable from the in-app settings page without editing config files.
+Built with Python/FastAPI, it runs locally on your machine. Your data stays on your computer. Choose from multiple AI backends — Claude (Anthropic), GPT (OpenAI), Gemini (Google), or a fully local model via Ollama — all configurable from the in-app settings page without editing config files.
 
 ## What It Does
 
@@ -34,12 +34,13 @@ Each step is powered by an AI agent. Results are saved automatically so you can 
 
 ## AI Providers
 
-The app supports three AI backends, switchable from the **Configuration** page at any time. Anthropic and OpenAI require you to provide your own API key — the app has no built-in key and makes no requests on your behalf.
+The app supports four AI backends, switchable from the **Configuration** page at any time. Anthropic, OpenAI, and Google require you to provide your own API key — the app has no built-in key and makes no requests on your behalf.
 
 | Provider | Setup | Cost | Web Search |
 |----------|-------|------|------------|
 | **Anthropic (Claude)** | Your own Anthropic API key | Pay-per-use | Via Anthropic web search tool |
 | **OpenAI (GPT)** | Your own OpenAI API key | Pay-per-use | Via OpenAI web search tool |
+| **Google (Gemini)** | Your own Google AI Studio API key | Pay-per-use | Via Google Search grounding |
 | **Ollama (local)** | [Ollama](https://ollama.com) installed + model pulled | Free | Via DuckDuckGo (no API key needed) |
 
 ### Running fully local with Ollama

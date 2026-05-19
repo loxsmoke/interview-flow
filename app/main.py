@@ -515,11 +515,44 @@ async def get_ollama_models():
         return {"models": [], "available": False}
 
 
+@app.get("/api/gemini/models")
+async def get_gemini_models():
+    """Fetch generateContent-capable Gemini models from the Google API."""
+    import asyncio
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return {"models": [], "available": False, "error": "No API key configured"}
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        raw = await asyncio.to_thread(lambda: list(client.models.list()))
+        models = []
+        for m in raw:
+            name = getattr(m, "name", "") or ""
+            model_id = name.removeprefix("models/")
+            if not model_id.startswith("gemini-"):
+                continue
+            supported = getattr(m, "supported_actions", []) or []
+            if "generateContent" not in supported:
+                continue
+            display_name = getattr(m, "display_name", "") or model_id
+            models.append({"id": model_id, "display_name": display_name})
+        models.sort(key=lambda m: (
+            any(x in m["id"] for x in ("preview", "exp", "latest")),
+            m["id"],
+        ))
+        return {"models": models, "available": True}
+    except Exception as exc:
+        return {"models": [], "available": False, "error": str(exc)}
+
+
 @app.get("/api/config")
 async def get_config():
     from app.agents.streaming import get_active_provider
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
     langfuse_public = os.environ.get("LANGFUSE_PUBLIC_KEY", "").strip()
     langfuse_secret = os.environ.get("LANGFUSE_SECRET_KEY", "").strip()
     langfuse_url = (os.environ.get("LANGFUSE_BASEURL") or os.environ.get("LANGFUSE_BASE_URL") or "").strip()
@@ -557,6 +590,9 @@ async def get_config():
         "anthropic_model": anthropic_model,
         "openai_api_key": openai_key,
         "openai_model": openai_model,
+        "gemini_api_key": gemini_key,
+        "gemini_api_key_set": bool(gemini_key),
+        "gemini_model": gemini_model,
         "ollama_base_url": ollama_base_url,
         "ollama_model": ollama_model,
         "ollama_num_ctx": ollama_num_ctx,
@@ -582,9 +618,18 @@ async def update_config(body: dict):
         val = body["openai_api_key"].strip()
         os.environ["OPENAI_API_KEY"] = val
         env_updates["OPENAI_API_KEY"] = val
+    if isinstance(body.get("gemini_api_key"), str):
+        val = body["gemini_api_key"].strip()
+        os.environ["GEMINI_API_KEY"] = val
+        env_updates["GEMINI_API_KEY"] = val
+    if isinstance(body.get("gemini_model"), str):
+        val = body["gemini_model"].strip()
+        if val:
+            os.environ["GEMINI_MODEL"] = val
+            env_updates["GEMINI_MODEL"] = val
     if isinstance(body.get("active_provider"), str):
         val = body["active_provider"].strip().lower()
-        if val in ("anthropic", "openai", "ollama"):
+        if val in ("anthropic", "openai", "gemini", "ollama"):
             os.environ["ACTIVE_PROVIDER"] = val
             env_updates["ACTIVE_PROVIDER"] = val
     if isinstance(body.get("openai_model"), str):

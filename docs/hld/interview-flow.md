@@ -4,7 +4,7 @@
 
 Interview Flow is an AI-powered interview preparation system that guides candidates through a structured, multi-step coaching process for job interviews. It combines company research, interview intel mining, job description analysis, story mining, resume tailoring, mock interviews, salary coaching, and pitch building into a single workflow.
 
-The system is a **Python/FastAPI backend** with a **React single-page frontend** served as a static HTML file. State is persisted to a single combined JSON file on disk. Each AI-powered step delegates to a specialized agent via an abstracted provider layer that supports Claude (Anthropic), GPT (OpenAI), and Ollama (local).
+The system is a **Python/FastAPI backend** with a **React single-page frontend** served as a static HTML file. State is persisted to a single combined JSON file on disk. Each AI-powered step delegates to a specialized agent via an abstracted provider layer that supports Claude (Anthropic), GPT (OpenAI), Gemini (Google), and Ollama (local).
 
 **Key inspiration**: [Lenny's Newsletter — How to use AI in your next job interview](https://www.lennysnewsletter.com/p/how-to-use-ai-in-your-next-job-interview) — the "Earned Secrets" framework, six-lens JD decoding, and multi-format mock interviews.
 
@@ -42,6 +42,7 @@ graph TB
     subgraph External["External Services / AI Providers"]
         Claude[Anthropic / Claude]
         OpenAI[OpenAI / GPT]
+        Gemini[Google / Gemini]
         Ollama[Ollama / Local LLM]
         WebSearch[Web Search]
     end
@@ -58,9 +59,11 @@ graph TB
     Agents --> Streaming
     Streaming --> Claude
     Streaming --> OpenAI
+    Streaming --> Gemini
     Streaming --> Ollama
     Claude --> WebSearch
     OpenAI --> WebSearch
+    Gemini --> WebSearch
     Ollama --> WebSearch
 ```
 
@@ -75,7 +78,7 @@ graph TB
 | **Pydantic Models** | `app/models.py` | Data schemas for all domain objects |
 | **State Manager** | `app/state.py` | Atomic JSON persistence, state ID validation, custom actions persistence |
 | **Prompt Loader** | `app/prompt_loader.py` | Load agent prompt templates from disk |
-| **Provider Abstraction** | `app/agents/streaming.py` | Provider selection (Claude/OpenAI/Ollama), streaming helpers, cost tracking |
+| **Provider Abstraction** | `app/agents/streaming.py` | Provider selection (Claude/OpenAI/Gemini/Ollama), streaming helpers, cost tracking |
 | **Research Agent** | `app/agents/research.py` | Company deep-dive research using web search |
 | **Story Miner Agent** | `app/agents/story_miner.py` | STAR story extraction, JD decoding, salary coaching, concern anticipation, pitch building, interview intel |
 | **Mock Interview Agent** | `app/agents/mock_interview.py` | Multi-turn interview simulation with scoring and debrief |
@@ -168,6 +171,7 @@ sequenceDiagram
 |-------------|----------|---------|
 | **Anthropic / Claude** | Python SDK async API | Primary AI provider for all agents |
 | **OpenAI / GPT** | Python SDK async API | Alternative AI provider |
+| **Google / Gemini** | Python SDK async API (`google-genai`) | Alternative AI provider with Google Search grounding |
 | **Ollama** | HTTP API (local) | Local LLM option, no API key required |
 | **Web Search** | Provider-native tools (WebSearch/WebFetch) or DuckDuckGo | Used by research agent and salary coach |
 | **File System** | Local disk I/O | JSON state persistence in `data/` directory |
@@ -232,7 +236,7 @@ This is a **single-user local tool**, not a multi-tenant service. Design choices
 |----------|-----------|------------------------|--------------|
 | Single combined JSON file | Simpler than per-state files; one atomic write covers all state | Per-state files, SQLite, PostgreSQL | Multi-user or >1000 states |
 | Single-file frontend | Zero build step, easy to ship | Next.js, Vite SPA | Need routing, SSR, or complex state management |
-| Abstracted provider layer | Supports Claude, OpenAI, and Ollama from one interface | Direct SDK calls, LangChain | New provider with incompatible interface |
+| Abstracted provider layer | Supports Claude, OpenAI, Gemini, and Ollama from one interface | Direct SDK calls, LangChain | New provider with incompatible interface |
 | Queue-backed agent execution | Decouples HTTP request lifetime from agent runtime; supports SSE progress streaming | Synchronous blocking endpoints | Truly parallel multi-user workloads |
 | In-memory mock sessions | Stateful multi-turn needs persistent connection | Database-backed conversation | Server restarts losing sessions becomes a problem |
 | Atomic file writes | Prevent corruption without DB transactions | File locking (fcntl), SQLite | Moving to database storage |

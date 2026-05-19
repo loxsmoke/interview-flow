@@ -117,7 +117,7 @@ interview-workflow/
 │   ├── desktop.py              # Native desktop window launcher
 │   ├── tracing.py              # Langfuse observability integration
 │   └── agents/
-│       ├── streaming.py        # Provider abstraction (Claude/OpenAI/Ollama) + cost tracking
+│       ├── streaming.py        # Provider abstraction (Claude/OpenAI/Gemini/Ollama) + cost tracking
 │       ├── research.py         # Company research agent
 │       ├── story_miner.py      # Story mining, JD decode, salary, concerns, pitches, intel
 │       ├── mock_interview.py   # Multi-turn mock interview session
