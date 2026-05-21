@@ -190,12 +190,28 @@
       },
     };
 
+    // ── Tag emoji decorator — skips content inside mermaid fences ────────
+    function addTagEmojis(text) {
+      const parts = text.split(/(```mermaid[\s\S]*?```)/g);
+      return parts.map((part, i) => {
+        if (i % 2 === 1) return part; // inside mermaid block — leave untouched
+        return part
+          .replace(/\[VERIFIED\]/g, '✅ [VERIFIED]')
+          .replace(/\[REPORTED\]/g, '✅ [REPORTED]')
+          .replace(/\[LIKELY\]/g, '🟡 [LIKELY]')
+          .replace(/\[SPECULATIVE\]/g, '❓ [SPECULATIVE]')
+          .replace(/\[HIGH\]/g, '🟢 [HIGH]')
+          .replace(/\[MEDIUM\]/g, '🟡 [MEDIUM]')
+          .replace(/\[LOW\]/g, '🔴 [LOW]');
+      }).join('');
+    }
+
     // ── Markdown Renderer (with Mermaid diagram support) ─────────────────
     function Markdown({ text }) {
       const containerRef = useRef(null);
       if (!text) return null;
 
-      const raw = marked.parse(text || '', { breaks: true });
+      const raw = marked.parse(addTagEmojis(text), { breaks: true });
       // Allow class attributes so mermaid code blocks retain "language-mermaid"
       const html = DOMPurify.sanitize(raw, { ADD_ATTR: ['class'] });
 
@@ -3569,8 +3585,11 @@
     }
 
     // ── Debrief Step ────────────────────────────────────────────────────────
-    function DebriefStep({ stateId, totalQueryCostLabel = '', totalQueryDetails = [], totalQueryTooltip = '' }) {
-      const [notes, setNotes] = useState('');
+    function DebriefStep({ stateId, stateData, totalQueryCostLabel = '', totalQueryDetails = [], totalQueryTooltip = '' }) {
+      const [notes, setNotes] = useState(() => {
+        const saved = stateData?.debrief_notes;
+        return (saved && saved.length > 0) ? saved[saved.length - 1] : '';
+      });
       const [saved, setSaved] = useState(false);
       const notesRef = useRef(null);
 
@@ -4448,7 +4467,7 @@
           case 'salary':
             return <AgentStep key={`salary-${stateId}`} stateId={stateId} stepId="salary" title="Salary Coaching" description="Compensation negotiation coaching with market data, range construction, and exact scripts for every stage." endpoint="salary" resultKey="analysis" cached={stateData?.comp_data?.raw_analysis} queryMeta={{ costUsd: stateData?.comp_data?.query_cost_usd, modelName: stateData?.comp_data?.query_model_name, durationMs: stateData?.comp_data?.query_duration_ms, ranAt: stateData?.comp_data?.query_ran_at }} onComplete={refreshState} onContinue={onContinue} usesWebSearch={true} queueItem={queueItemFor('salary')} failedQueueItem={failedQueueItemFor('salary')} hasRunningQueueItem={!!queueStatus.running} onQueueAction={handleQueueAction} queueStatus={queueStatus} />;
           case 'debrief':
-            return <DebriefStep stateId={stateId} totalQueryCostLabel={totalQueryCostLabel} totalQueryDetails={totalQueryDetails} totalQueryTooltip={totalQueryTooltip} />;
+            return <DebriefStep stateId={stateId} stateData={stateData} totalQueryCostLabel={totalQueryCostLabel} totalQueryDetails={totalQueryDetails} totalQueryTooltip={totalQueryTooltip} />;
           case 'config':
             return <AppConfigStep onSaved={checkConfig} />;
           default:

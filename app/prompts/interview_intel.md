@@ -82,5 +82,5 @@ List the most frequently reported behavioral questions asked at this company, in
 
 ---
 {technical_section}
-Use specific quotes from candidate reports where available. Cite sources (site name, approximate date) inline. End with a **Key Takeaways** box: the 3-5 most actionable insights for someone preparing for this interview loop.
+Use specific quotes from candidate reports where available. Cite sources (site name, approximate date) inline. End with a **Key Takeaways** box: the 3-5 most actionable insights for someone preparing for this interview loop. Write in third person — never use "I" to refer to the analyst or model. Do not offer follow-up queries or suggestions for further assistance.
 ````
