@@ -3212,7 +3212,7 @@
               String(today.getMonth() + 1).padStart(2, '0') +
               String(today.getDate()).padStart(2, '0');
             const namePart = cleanPart(contactName || '', true);
-            const companyPart = cleanPart(companyName || '', false);
+            const companyPart = cleanPart(companyName || '', true);
             const parts = [namePart, 'Resume', dateStr, companyPart].filter(Boolean);
             const suggestedName = parts.join('_') + '.docx';
             let fileHandle;

@@ -84,9 +84,7 @@ def _check_langfuse() -> None:
         lf.flush()
         print("[Langfuse] startup trace sent - check http://localhost:3000", flush=True)
     except Exception as exc:
-        import traceback
         print(f"[Langfuse] startup check failed: {exc}", flush=True)
-        traceback.print_exc()
 
 _check_langfuse()
 
@@ -270,6 +268,10 @@ def require_ai_api_key() -> None:
             raise HTTPException(503, "OPENAI_API_KEY is not set. Add it in App Configuration or your .env file.")
     elif provider == "ollama":
         pass  # Ollama runs locally — no key required
+    elif provider == "gemini":
+        key = os.environ.get("GEMINI_API_KEY", "").strip()
+        if not key:
+            raise HTTPException(503, "GEMINI_API_KEY is not set. Add it in App Configuration or your .env file.")
     else:
         key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
         if not key or key == "your-key-here":

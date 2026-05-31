@@ -34,11 +34,12 @@ class TestNamePipe:
         result = _build_export_filename("| something", "Acme", DATE)
         assert result == "Resume_20260506_Acme.docx"
 
-    def test_pipe_in_company_not_dropped(self):
-        # company field doesn't have the pipe rule; but | is stripped as unsafe
+    def test_pipe_in_company_strips_suffix(self):
+        # company field applies the same pipe rule as name: only text before | is kept
         result = _build_export_filename("Jane Doe", "Big | Corp", DATE)
         assert "Big" in result
         assert "|" not in result
+        assert "Corp" not in result
 
 
 class TestSpaces:
