@@ -2654,6 +2654,9 @@ async def resume_export(state_id: str, body: ResumeExportBody):
 
     if body.save_path.strip():
         save_path = Path(body.save_path.strip())
+        if not save_path.is_absolute():
+            documents = Path.home() / "Documents"
+            save_path = (documents if documents.exists() else Path.home()) / save_path
     else:
         desktop = Path.home() / "Desktop"
         save_path = (desktop if desktop.exists() else Path.home()) / filename
@@ -2662,6 +2665,34 @@ async def resume_export(state_id: str, body: ResumeExportBody):
     save_path.write_bytes(_build_resume_doc(text))
 
     return {"path": str(save_path), "filename": save_path.name}
+
+
+class OpenFolderBody(BaseModel):
+    path: str
+
+
+@app.post("/api/open-folder")
+async def open_folder(body: OpenFolderBody):
+    """Open the OS file manager at the given file's folder, selecting the file when possible."""
+    import subprocess
+
+    p = Path(body.path.strip()).expanduser()
+    if not p.exists() and not p.parent.exists():
+        raise HTTPException(404, "Path not found")
+
+    if sys.platform == "win32":
+        if p.is_file():
+            subprocess.Popen(["explorer", f"/select,{p}"])
+        else:
+            os.startfile(str(p if p.is_dir() else p.parent))
+    elif sys.platform == "darwin":
+        if p.is_file():
+            subprocess.Popen(["open", "-R", str(p)])
+        else:
+            subprocess.Popen(["open", str(p if p.is_dir() else p.parent)])
+    else:
+        subprocess.Popen(["xdg-open", str(p if p.is_dir() else p.parent)])
+    return {"ok": True}
 
 
 # ── Routes: Resume Library ───────────────────────────────────────────────────

@@ -137,6 +137,19 @@ class _JsApi:
         result = webview.windows[0].create_file_dialog(webview.FileDialog.FOLDER, directory=initial_dir)
         return result[0] if result else None
 
+    def save_file_dialog(self, suggested_name: str = '', initial_dir: str = '') -> str | None:
+        """Native save dialog; returns the full chosen path (unlike showSaveFilePicker)."""
+        import webview
+        if not initial_dir:
+            documents = Path.home() / "Documents"
+            initial_dir = str(documents if documents.exists() else Path.home())
+        result = webview.windows[0].create_file_dialog(
+            webview.FileDialog.SAVE, directory=initial_dir, save_filename=suggested_name)
+        if not result:
+            return None
+        # pywebview returns a string for SAVE dialogs on some platforms, a tuple on others
+        return result if isinstance(result, str) else result[0]
+
 
 def main() -> None:
     # When frozen by PyInstaller, resolve user data dir so state is saved next to
