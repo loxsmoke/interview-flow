@@ -922,7 +922,11 @@ async def _run_queue_item(item) -> None:
         if item.cancel_event.is_set():
             await queue_manager.mark_canceled(item.id)
             return
-        for line in chunk.decode("utf-8").splitlines():
+        # Split only on "\n" (the _json_line terminator). str.splitlines() also
+        # breaks on U+2028/U+2029/U+0085, which json.dumps(ensure_ascii=False)
+        # leaves unescaped inside string values — splitting there severs a JSON
+        # line mid-string and makes json.loads raise "Unterminated string".
+        for line in chunk.decode("utf-8").split("\n"):
             if not line.strip():
                 continue
             event = json.loads(line)

@@ -60,7 +60,7 @@ async def fake_text_stream(text: str):
 async def consume_queue_stream(state_id: str, section_key: str) -> list[dict]:
     events = []
     async for chunk in app_mod._queued_section_stream(state_id, section_key):
-        for line in chunk.decode("utf-8").splitlines():
+        for line in chunk.decode("utf-8").split("\n"):
             if line.strip():
                 events.append(json.loads(line))
     return events
@@ -140,6 +140,51 @@ def test_queued_text_sections_save_to_matching_state_fields(
     assert events[-1]["result"] == text
     assert section_key in saved.completed_steps
     assert state_assertion(saved, text)
+
+
+async def fake_stream_with_separator(text: str):
+    """Stream that emits a receive delta containing a U+2028 line separator.
+
+    json.dumps(ensure_ascii=False) leaves U+2028/U+2029/U+0085 unescaped inside
+    string values, so the queue worker must not split NDJSON lines with
+    str.splitlines() (which breaks on those) — only on "\n".
+    """
+    yield {"type": "send", "channel": "user", "text": "prompt"}
+    yield {"type": "receive", "text": "Acme Corp is a leader in widgets\x85and more"}
+    yield {
+        "type": "complete",
+        "text": text,
+        "cost_usd": 1.25,
+        "model_name": "test-model",
+        "duration_ms": 321,
+    }
+
+
+def test_queued_item_with_unicode_separators_completes(monkeypatch, sample_state):
+    """A receive delta containing U+2028/U+2029/U+0085 must not fail the queue item.
+
+    Regression: the worker parsed the NDJSON byte stream with str.splitlines(),
+    which severed JSON lines at those code points and made json.loads raise
+    "Unterminated string", surfacing as "Queued agent encountered an error".
+    """
+    monkeypatch.setattr(app_mod, "require_ai_api_key", lambda: None)
+    monkeypatch.setattr(
+        app_mod, "stream_research", lambda *args, **kwargs: fake_stream_with_separator("Final report")
+    )
+
+    async def scenario():
+        item = await app_mod.queue_manager.enqueue(sample_state.id, "research", "Research")
+        running = await app_mod.queue_manager.running_item()
+        assert running is item and item.status == "running"
+        await app_mod._run_queue_item(item)
+        return item
+
+    item = run(scenario())
+
+    assert item.status == "completed", f"unexpected status {item.status!r}: {item.error_detail}"
+    assert item.error == ""
+    saved = db.load_state(sample_state.id)
+    assert saved.research.raw_report == "Final report"
 
 
 def test_queued_story_mapping_appends_stories_and_metadata(monkeypatch, sample_state):
